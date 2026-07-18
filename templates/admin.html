@@ -166,6 +166,7 @@ async function carregarProdutos() {
   if (!marcaAtual || !categoriaAtual) return;
   const r = await fetch(`/api/produtos/${marcaAtual.id}/${categoriaAtual.id}`);
   produtos = await r.json();
+  produtos.sort((a, b) => b.id - a.id); // mais recentes primeiro no painel
   renderProdutos();
 }
 
@@ -235,19 +236,19 @@ function renderCard(p) {
     </div>`;
 }
 
-// ---- Corte de imagem (Cropper.js) ----
+// ---- Corte de imagem (Cropper.js), generico via callback ----
 let cropper = null;
-let cropAlvo = { id: null, campo: 'imagem' };
+let cropCallback = null; // recebe a URL final da imagem enviada
 
-function abrirCrop(input, id, campo, aspect) {
+function abrirCropCb(input, aspect, cb) {
   const file = input.files[0];
   input.value = ''; // permite re-selecionar o mesmo arquivo depois
   if (!file) return;
-  if (typeof Cropper === 'undefined') { // fallback se o CDN nao carregar
-    uploadDireto(file, id, campo);
+  if (typeof Cropper === 'undefined') { // fallback se o CDN nao carregar: envia sem cortar
+    enviarImagem(file, file.name || 'foto.jpg').then(url => { if (url) cb(url); });
     return;
   }
-  cropAlvo = { id, campo };
+  cropCallback = cb;
   const reader = new FileReader();
   reader.onload = e => {
     const imgEl = document.getElementById('cropImg');
@@ -267,25 +268,40 @@ function fecharCrop() {
 function confirmarCrop() {
   if (!cropper) return;
   const canvas = cropper.getCroppedCanvas({ maxWidth: 1400, maxHeight: 1400 });
-  canvas.toBlob(blob => {
+  const cb = cropCallback;
+  canvas.toBlob(async blob => {
     fecharCrop();
-    uploadDireto(blob, cropAlvo.id, cropAlvo.campo, 'crop.jpg');
+    const url = await enviarImagem(blob, 'crop.jpg');
+    if (url && cb) cb(url);
   }, 'image/jpeg', 0.9);
 }
 
-async function uploadDireto(fileOrBlob, id, campo, filename) {
+async function enviarImagem(fileOrBlob, filename) {
   const fd = new FormData();
-  fd.append('imagem', fileOrBlob, filename || (fileOrBlob.name || 'foto.jpg'));
+  fd.append('imagem', fileOrBlob, filename || 'foto.jpg');
   showToast('Enviando...');
   const r = await fetch('/api/upload', { method: 'POST', body: fd });
   const d = await r.json();
-  if (d.success) {
-    await fetch(`/api/produto/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [campo]: d.url }) });
+  if (!d.success) { showToast(d.error || 'Erro no upload'); return null; }
+  return d.url;
+}
+
+// Foto de produto (usa o callback para gravar no produto)
+function abrirCrop(input, id, campo, aspect) {
+  abrirCropCb(input, aspect, async (url) => {
+    await fetch(`/api/produto/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [campo]: url }) });
     await carregarProdutos();
     showToast('Imagem salva!');
-  } else {
-    showToast(d.error || 'Erro no upload');
-  }
+  });
+}
+
+// Foto de peca de look
+function abrirCropPeca(input, pecaId) {
+  abrirCropCb(input, 1, async (url) => {
+    await fetch(`/api/peca/${pecaId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imagem: url }) });
+    await carregarLooks();
+    showToast('Foto salva!');
+  });
 }
 
 async function salvarProduto(id) {
@@ -319,31 +335,137 @@ async function removerProduto(id) {
   showToast('Removido!');
 }
 
+let todosProdutos = []; // lista achatada de produtos, para o seletor de pecas
+
 async function carregarLooks() {
   const r = await fetch('/api/dados');
   const d = await r.json();
-  looks = d.looks;
+  looks = d.looks || [];
+  // Achata todos os produtos cadastrados para o seletor "adicionar produto ao look"
+  todosProdutos = [];
+  const prods = d.produtos || {};
+  Object.keys(prods).forEach(marcaNome => {
+    const cats = prods[marcaNome].categorias || {};
+    Object.keys(cats).forEach(catNome => {
+      (cats[catNome] || []).forEach(p => {
+        todosProdutos.push({ ref: p.ref, marca: marcaNome, nome: p.nome, descricao: p.descricao, preco: p.preco, imagem: p.imagem });
+      });
+    });
+  });
+  renderLooks();
+}
+
+function renderLooks() {
   const el = document.getElementById('looksContainer');
-  if(!looks.length) { el.innerHTML = '<div class="empty">Nenhum look</div>'; return; }
-  el.innerHTML = looks.map(l => `
-    <div class="product-card" style="margin-bottom:16px;">
-      <div class="card-header"><span class="ref">${l.nome}</span></div>
-      <div class="card-body">
-        <div class="product-grid" style="grid-template-columns:1fr 1fr;">
-          ${l.pecas.map((peca,i) => `
-            <div>
-              <div class="img-preview">${peca.imagem?`<img src="${peca.imagem}">`:''}</div>
-              <div class="field"><label>REF</label><input type="text" value="${esc(peca.ref)}"></div>
-              <div class="field"><label>Marca</label><input type="text" value="${esc(peca.marca)}"></div>
-              <div class="field"><label>Nome</label><input type="text" value="${esc(peca.nome)}"></div>
-              <div class="field"><label>Descricao</label><textarea>${esc(peca.descricao)}</textarea></div>
-              <div class="field"><label>Preco</label><input type="number" step="0.01" class="price-input" value="${peca.preco||0}"></div>
-            </div>
-          `).join('')}
+  let html = `<button class="add-btn" onclick="adicionarLook()">+ Adicionar Look</button>`;
+  if (!looks.length) { html += '<div class="empty">Nenhum look ainda. Clique em "+ Adicionar Look".</div>'; }
+  else { html += looks.map(renderLookCard).join(''); }
+  el.innerHTML = html;
+}
+
+function renderLookCard(l) {
+  const options = todosProdutos.map((p, i) => `<option value="${i}">${esc(p.marca)} - ${esc(p.nome)} (${esc(p.ref)})</option>`).join('');
+  const pecas = (l.pecas || []).map(renderPecaCard).join('');
+  return `
+    <div class="product-card look-card-adm" data-look="${l.id}" style="margin-bottom:16px;">
+      <div class="card-header">
+        <input class="l-nome" value="${esc(l.nome)}" style="flex:1;font-weight:700;letter-spacing:1px;border:1px solid #ddd;padding:7px 10px;margin-right:8px;">
+        <div class="actions">
+          <button class="btn-success" onclick="salvarLook(${l.id})">Salvar</button>
+          <button class="btn-danger" onclick="removerLook(${l.id})">X</button>
         </div>
       </div>
-    </div>
-  `).join('');
+      <div class="card-body">
+        <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;">
+          <select class="l-prodpicker" style="flex:1;min-width:180px;padding:8px;border:1px solid #ddd;font-size:12px;">
+            <option value="">Escolher produto existente...</option>
+            ${options}
+          </select>
+          <button class="btn btn-success" onclick="adicionarPecaDeProduto(${l.id}, this)">+ Add produto</button>
+          <button class="add-btn" style="width:auto;margin:0;padding:9px 14px;" onclick="adicionarPecaManual(${l.id})">+ Peca manual</button>
+        </div>
+        <div class="product-grid" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr));">
+          ${pecas || '<div class="empty">Nenhuma peca neste look</div>'}
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderPecaCard(peca) {
+  const img = peca.imagem ? `<img src="${peca.imagem}" onerror="this.style.display='none'">` : '';
+  return `
+    <div class="product-card peca-card" data-peca="${peca.id}">
+      <div class="card-body">
+        <div class="img-preview" style="height:130px;">${img}</div>
+        <div class="field"><label>Foto</label><input type="file" accept="image/*" onchange="abrirCropPeca(this,${peca.id})"></div>
+        <div class="field"><label>REF</label><input type="text" class="p-ref" value="${esc(peca.ref)}"></div>
+        <div class="field"><label>Marca</label><input type="text" class="p-marca" value="${esc(peca.marca)}"></div>
+        <div class="field"><label>Nome</label><input type="text" class="p-nome" value="${esc(peca.nome)}"></div>
+        <div class="field"><label>Descricao</label><textarea class="p-desc">${esc(peca.descricao)}</textarea></div>
+        <div class="field"><label>Preco</label><input type="number" step="0.01" class="p-preco price-input" value="${peca.preco||0}"></div>
+        <div class="actions" style="display:flex;gap:5px;">
+          <button class="btn-success" style="flex:1;" onclick="salvarPeca(${peca.id})">Salvar</button>
+          <button class="btn-danger" onclick="removerPeca(${peca.id})">X</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+async function adicionarLook() {
+  const r = await fetch('/api/look', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nome: 'NOVO LOOK' }) });
+  const d = await r.json();
+  if (d.success) { await carregarLooks(); showToast('Look adicionado'); }
+  else { showToast(d.error || 'Erro ao adicionar look'); }
+}
+
+async function salvarLook(id) {
+  const card = document.querySelector(`.look-card-adm[data-look="${id}"]`);
+  const nome = card.querySelector('.l-nome').value;
+  await fetch(`/api/look/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nome }) });
+  showToast('Look salvo');
+}
+
+async function removerLook(id) {
+  if (!confirm('Remover este look e todas as suas pecas?')) return;
+  await fetch(`/api/look/${id}`, { method: 'DELETE' });
+  await carregarLooks(); showToast('Look removido');
+}
+
+async function adicionarPecaDeProduto(lookId, btn) {
+  const sel = btn.parentElement.querySelector('.l-prodpicker');
+  const idx = sel.value;
+  if (idx === '') { showToast('Escolha um produto na lista'); return; }
+  const p = todosProdutos[idx];
+  const r = await fetch(`/api/look/${lookId}/peca`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p) });
+  const d = await r.json();
+  if (d.success) { await carregarLooks(); showToast('Produto adicionado ao look'); }
+  else { showToast(d.error || 'Erro'); }
+}
+
+async function adicionarPecaManual(lookId) {
+  const r = await fetch(`/api/look/${lookId}/peca`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nome: 'Nova peca' }) });
+  const d = await r.json();
+  if (d.success) { await carregarLooks(); showToast('Peca adicionada'); }
+  else { showToast(d.error || 'Erro'); }
+}
+
+async function salvarPeca(id) {
+  const card = document.querySelector(`.peca-card[data-peca="${id}"]`);
+  const body = {
+    ref: card.querySelector('.p-ref').value,
+    marca: card.querySelector('.p-marca').value,
+    nome: card.querySelector('.p-nome').value,
+    descricao: card.querySelector('.p-desc').value,
+    preco: parseFloat(card.querySelector('.p-preco').value) || 0,
+  };
+  await fetch(`/api/peca/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  showToast('Peca salva');
+}
+
+async function removerPeca(id) {
+  if (!confirm('Remover esta peca?')) return;
+  await fetch(`/api/peca/${id}`, { method: 'DELETE' });
+  await carregarLooks(); showToast('Peca removida');
 }
 
 async function salvarTudo() {

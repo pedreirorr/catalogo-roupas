@@ -274,6 +274,77 @@ def deletar_produto(prod_id):
     sb_table('produtos').update({'ativo': False}).eq('id', prod_id).execute()
     return jsonify({'success': True})
 
+# ============ LOOKS E PECAS ============
+
+@app.route('/api/look', methods=['POST'])
+@requer_senha
+def criar_look():
+    if not supabase:
+        return jsonify({'error': 'Supabase nao configurado'}), 500
+    data = request.get_json() or {}
+    insert_data = {
+        'nome': data.get('nome', 'NOVO LOOK'),
+        'descricao': data.get('descricao', 'Curadoria Premium'),
+    }
+    resp = sb_table('looks').insert(insert_data).execute()
+    return jsonify({'success': True, 'look': resp.data[0] if resp.data else insert_data})
+
+@app.route('/api/look/<int:look_id>', methods=['PUT'])
+@requer_senha
+def atualizar_look(look_id):
+    if not supabase:
+        return jsonify({'error': 'Supabase nao configurado'}), 500
+    data = request.get_json() or {}
+    update_data = {k: v for k, v in data.items() if k in ['nome', 'descricao']}
+    sb_table('looks').update(update_data).eq('id', look_id).execute()
+    return jsonify({'success': True})
+
+@app.route('/api/look/<int:look_id>', methods=['DELETE'])
+@requer_senha
+def deletar_look(look_id):
+    if not supabase:
+        return jsonify({'error': 'Supabase nao configurado'}), 500
+    # Remove as pecas primeiro (FK) e depois o look
+    sb_table('look_pecas').delete().eq('look_id', look_id).execute()
+    sb_table('looks').delete().eq('id', look_id).execute()
+    return jsonify({'success': True})
+
+@app.route('/api/look/<int:look_id>/peca', methods=['POST'])
+@requer_senha
+def criar_peca(look_id):
+    if not supabase:
+        return jsonify({'error': 'Supabase nao configurado'}), 500
+    data = request.get_json() or {}
+    insert_data = {
+        'look_id': look_id,
+        'ref': data.get('ref', ''),
+        'marca': data.get('marca', ''),
+        'nome': data.get('nome', 'Nova peca'),
+        'descricao': data.get('descricao', ''),
+        'preco': data.get('preco', 0),
+        'imagem': data.get('imagem', ''),
+    }
+    resp = sb_table('look_pecas').insert(insert_data).execute()
+    return jsonify({'success': True, 'peca': resp.data[0] if resp.data else insert_data})
+
+@app.route('/api/peca/<int:peca_id>', methods=['PUT'])
+@requer_senha
+def atualizar_peca(peca_id):
+    if not supabase:
+        return jsonify({'error': 'Supabase nao configurado'}), 500
+    data = request.get_json() or {}
+    update_data = {k: v for k, v in data.items() if k in ['ref', 'marca', 'nome', 'descricao', 'preco', 'imagem']}
+    sb_table('look_pecas').update(update_data).eq('id', peca_id).execute()
+    return jsonify({'success': True})
+
+@app.route('/api/peca/<int:peca_id>', methods=['DELETE'])
+@requer_senha
+def deletar_peca(peca_id):
+    if not supabase:
+        return jsonify({'error': 'Supabase nao configurado'}), 500
+    sb_table('look_pecas').delete().eq('id', peca_id).execute()
+    return jsonify({'success': True})
+
 @app.route('/api/upload', methods=['POST'])
 @requer_senha
 def upload_imagem():
