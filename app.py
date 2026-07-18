@@ -7,6 +7,9 @@ Python + Flask + Supabase (PostgreSQL + Storage) + WeasyPrint
 
 import os
 import hmac
+import time
+import threading
+import urllib.request
 from io import BytesIO
 from datetime import datetime
 from functools import wraps
@@ -70,7 +73,7 @@ def init_supabase():
     # Verificar/criar bucket
     try:
         buckets = supabase.storage.list_buckets()
-        bucket_names = [b['name'] for b in buckets]
+        bucket_names = [b['name'] if isinstance(b, dict) else getattr(b, 'name', None) for b in buckets]
         if BUCKET_NAME not in bucket_names:
             supabase.storage.create_bucket(BUCKET_NAME, {'public': True})
             print(f"✅ Bucket '{BUCKET_NAME}' criado")
@@ -138,7 +141,25 @@ def gerar_ref(marca_id, categoria_id):
     count = sb_table('produtos').select('*', count='exact').eq('marca_id', marca_id).eq('categoria_id', categoria_id).execute().count
     return f"{cat_prefix}{prefixo}{count + 1:02d}"
 
-def get_dados_completos():
+# Tamanhos disponiveis no catalogo (usados nos checkboxes do admin e nos PDFs por tamanho)
+TAMANHOS = ['PP', 'P', 'M', 'G', 'GG', 'XGG']
+
+def _disponivel_no_tamanho(prod, tamanho):
+    """Diz se o produto deve aparecer no PDF do tamanho pedido.
+
+    - tamanho=None (preview geral) -> mostra tudo.
+    - produtos sem a coluna 'tamanhos' (dados legados) -> aparecem em todos.
+    - lista vazia de tamanhos (esgotado em todos) -> nao aparece em nenhum.
+    """
+    if not tamanho:
+        return True
+    val = prod.get('tamanhos')
+    if val is None:
+        return True
+    disponiveis = [t.strip().upper() for t in val.split(',') if t.strip()]
+    return tamanho.strip().upper() in disponiveis
+
+def get_dados_completos(tamanho=None):
     if not supabase:
         return {'marcas': [], 'produtos': {}, 'looks': []}
 
@@ -151,7 +172,7 @@ def get_dados_completos():
         categorias = {}
         for cat in cats_resp.data or []:
             prods_resp = sb_table('produtos').select('*').eq('marca_id', marca['id']).eq('categoria_id', cat['id']).eq('ativo', True).order('id').execute()
-            prods = prods_resp.data or []
+            prods = [p for p in (prods_resp.data or []) if _disponivel_no_tamanho(p, tamanho)]
             if prods:
                 categorias[cat['nome']] = prods
         # Inclui a marca sempre, mesmo sem produtos, para que os links da capa
@@ -172,6 +193,11 @@ def get_dados_completos():
 @app.route('/')
 def index():
     return redirect(url_for('admin'))
+
+@app.route('/health')
+def health():
+    """Endpoint publico e leve, usado pelo keep-alive e por monitores externos."""
+    return jsonify({'status': 'ok'})
 
 @app.route('/admin')
 @requer_senha
@@ -224,6 +250,7 @@ def criar_produto():
         'imagem': data.get('imagem', ''),
         'imagem_detalhe': data.get('imagem_detalhe', ''),
         'cores': data.get('cores', ''),
+        'tamanhos': data.get('tamanhos', ','.join(TAMANHOS)),
         'ativo': True
     }
     resp = sb_table('produtos').insert(insert_data).execute()
@@ -235,7 +262,7 @@ def atualizar_produto(prod_id):
     if not supabase:
         return jsonify({'error': 'Supabase nao configurado'}), 500
     data = request.get_json()
-    update_data = {k: v for k, v in data.items() if k in ['nome', 'descricao', 'preco', 'imagem', 'imagem_detalhe', 'cores', 'ativo']}
+    update_data = {k: v for k, v in data.items() if k in ['nome', 'descricao', 'preco', 'imagem', 'imagem_detalhe', 'cores', 'tamanhos', 'ativo']}
     resp = sb_table('produtos').update(update_data).eq('id', prod_id).execute()
     return jsonify({'success': True, 'produto': resp.data[0] if resp.data else update_data})
 
@@ -272,7 +299,7 @@ def upload_imagem():
 @app.route('/pdf/<tamanho>')
 def gerar_pdf(tamanho):
     tamanho = tamanho.upper()
-    dados = get_dados_completos()
+    dados = get_dados_completos(tamanho)
     html = render_template('catalogo.html', titulo='AZOZ STORE', subtitulo=f'TAMANHO {tamanho}', marcas=dados['marcas'], produtos=dados['produtos'], looks=dados['looks'], whatsapp=WHATSAPP_NUMBER)
 
     # PDF gerado em memoria: nada fica gravado no disco do servidor
@@ -282,8 +309,35 @@ def gerar_pdf(tamanho):
 @app.route('/preview/<tamanho>')
 def preview_pdf(tamanho):
     tamanho = tamanho.upper()
-    dados = get_dados_completos()
+    dados = get_dados_completos(tamanho)
     return render_template('catalogo.html', titulo='AZOZ STORE', subtitulo=f'TAMANHO {tamanho}', marcas=dados['marcas'], produtos=dados['produtos'], looks=dados['looks'], whatsapp=WHATSAPP_NUMBER)
+
+# ============ KEEP-ALIVE (anti-sleep do Render Free) ============
+
+def _keep_alive():
+    """Evita que o Render Free hiberne apos 15 min de inatividade.
+
+    Faz um auto-ping periodico na URL publica do proprio servico. Cada ping
+    e uma requisicao de entrada que reinicia o contador de inatividade do
+    Render, mantendo o servico acordado enquanto ele estiver rodando.
+    """
+    base = os.environ.get('RENDER_EXTERNAL_URL', '').rstrip('/')
+    if not base:
+        return
+    ping_url = f'{base}/health'
+    intervalo = int(os.environ.get('KEEP_ALIVE_SECONDS', 14 * 60))
+    while True:
+        time.sleep(intervalo)
+        try:
+            with urllib.request.urlopen(ping_url, timeout=30) as resp:
+                resp.read()
+        except Exception:
+            pass  # falha de ping nao deve derrubar o app
+
+# So faz sentido no Render (onde RENDER_EXTERNAL_URL existe). Rodando sob o
+# gunicorn, isto e iniciado no import do modulo (nao no bloco __main__).
+if os.environ.get('RENDER_EXTERNAL_URL'):
+    threading.Thread(target=_keep_alive, daemon=True).start()
 
 if __name__ == '__main__':
     init_supabase()

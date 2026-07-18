@@ -17,7 +17,11 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     print("❌ Configure SUPABASE_URL e SUPABASE_KEY no arquivo .env")
     print("   Exemplo:")
     print("   SUPABASE_URL=https://seu-projeto.supabase.co")
-    print("   SUPABASE_KEY=sua_chave_anon_aqui")
+    print("   SUPABASE_KEY=sua_chave_service_role_aqui")
+    print()
+    print("   ⚠️  Use a chave 'service_role' (Settings > API > service_role).")
+    print("       As tabelas usam RLS sem policies, entao a anon key NAO acessa")
+    print("       os dados e o catalogo apareceria sempre vazio.")
     exit(1)
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -56,10 +60,14 @@ CREATE TABLE IF NOT EXISTS produtos (
     imagem TEXT DEFAULT '',
     imagem_detalhe TEXT DEFAULT '',
     cores TEXT DEFAULT '',
+    tamanhos TEXT DEFAULT 'PP,P,M,G,GG,XGG',
     ativo BOOLEAN DEFAULT TRUE,
     ordem INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Migracao: garante a coluna 'tamanhos' em bancos que ja tinham a tabela produtos
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS tamanhos TEXT DEFAULT 'PP,P,M,G,GG,XGG';
 
 -- Tabela de looks
 CREATE TABLE IF NOT EXISTS looks (
@@ -108,15 +116,18 @@ ALTER TABLE look_pecas ENABLE ROW LEVEL SECURITY;
 """
 
 try:
-    # Tentar executar via RPC (pode nao funcionar sem permissao)
+    # Tentativa via RPC. So funciona se voce tiver criado uma funcao
+    # 'exec_sql' no Supabase; por padrao ela nao existe, entao o normal
+    # e cair no fallback abaixo e colar o SQL no SQL Editor.
     supabase.rpc('exec_sql', {'sql': sql}).execute()
     print("✅ Tabelas criadas via RPC!")
 except Exception as e:
-    print(f"⚠️  RPC falhou (normal): {e}")
+    print(f"ℹ️  Nao foi possivel criar via RPC ({e}).")
+    print("   Isso e esperado: rode o SQL abaixo manualmente (leva 30s).")
     print()
-    print("👉 Cole o SQL abaixo manualmente no Supabase:")
+    print("👉 Cole o SQL abaixo no Supabase:")
     print("   1. Acesse https://app.supabase.com")
-    print("   2. Va em seu projeto > SQL Editor")
+    print("   2. Va em seu projeto > SQL Editor > New query")
     print("   3. Cole o SQL e clique em 'Run'")
     print()
     print("=" * 60)
@@ -127,7 +138,8 @@ except Exception as e:
 BUCKET_NAME = os.environ.get('BUCKET_NAME', 'imagens')
 try:
     buckets = supabase.storage.list_buckets()
-    bucket_names = [b['name'] for b in buckets]
+    # list_buckets pode retornar dicts ou objetos dependendo da versao do supabase-py
+    bucket_names = [b['name'] if isinstance(b, dict) else getattr(b, 'name', None) for b in buckets]
     if BUCKET_NAME not in bucket_names:
         supabase.storage.create_bucket(BUCKET_NAME, {'public': True})
         print(f"✅ Bucket '{BUCKET_NAME}' criado!")

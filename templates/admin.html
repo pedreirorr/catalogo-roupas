@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AZOZ STORE - Painel de Edicao</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; background:#f5f5f0; color:#1a1a1a; }
@@ -63,6 +65,21 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; background:#f5f5
 .pdf-actions { display:flex; gap:10px; margin-bottom:20px; flex-wrap:wrap; }
 .pdf-actions a { padding:10px 18px; background:#1a1a1a; color:#fff; font-size:11px; font-weight:600; letter-spacing:1px; text-transform:uppercase; text-decoration:none; }
 .pdf-actions a:hover { background:#333; }
+
+/* Tamanhos disponiveis por produto */
+.sizes { display:flex; gap:6px; flex-wrap:wrap; }
+.size-chk { display:flex; align-items:center; gap:4px; font-size:12px; font-weight:600; letter-spacing:1px; border:1px solid #ddd; padding:5px 9px; cursor:pointer; user-select:none; }
+.size-chk input { margin:0; cursor:pointer; }
+.size-chk:has(input:checked) { background:#1a1a1a; color:#fff; border-color:#1a1a1a; }
+
+/* Modal de corte de imagem */
+.crop-modal { position:fixed; inset:0; background:rgba(0,0,0,.75); z-index:2000; display:none; align-items:center; justify-content:center; padding:16px; }
+.crop-modal.show { display:flex; }
+.crop-box { background:#fff; width:100%; max-width:520px; border-radius:6px; overflow:hidden; display:flex; flex-direction:column; }
+.crop-box .crop-title { padding:12px 16px; font-size:12px; font-weight:700; letter-spacing:2px; text-transform:uppercase; border-bottom:1px solid #eee; }
+.crop-img-wrap { background:#222; max-height:60vh; }
+.crop-img-wrap img { display:block; max-width:100%; }
+.crop-actions { display:flex; gap:10px; justify-content:flex-end; padding:12px 16px; }
 </style>
 </head>
 <body>
@@ -82,10 +99,12 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; background:#f5f5
 <div class="container">
   <div id="tab-produtos" class="section active">
     <div class="pdf-actions">
+      <a href="/pdf/PP" target="_blank">PDF Tamanho PP</a>
       <a href="/pdf/P" target="_blank">PDF Tamanho P</a>
       <a href="/pdf/M" target="_blank">PDF Tamanho M</a>
       <a href="/pdf/G" target="_blank">PDF Tamanho G</a>
       <a href="/pdf/GG" target="_blank">PDF Tamanho GG</a>
+      <a href="/pdf/XGG" target="_blank">PDF Tamanho XGG</a>
       <a href="/preview/M" target="_blank" style="background:#666;">Preview HTML</a>
     </div>
     <div class="marca-selector" id="marcaSelector"></div>
@@ -100,8 +119,23 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; background:#f5f5
 
 <div class="toast" id="toast"></div>
 
+<!-- Modal de corte de imagem -->
+<div class="crop-modal" id="cropModal">
+  <div class="crop-box">
+    <div class="crop-title">Cortar imagem para o layout</div>
+    <div class="crop-img-wrap"><img id="cropImg" src="" alt=""></div>
+    <div class="crop-actions">
+      <button class="btn btn-secondary" style="color:#1a1a1a;border-color:#1a1a1a;" onclick="fecharCrop()">Cancelar</button>
+      <button class="btn btn-success" onclick="confirmarCrop()">Cortar e enviar</button>
+    </div>
+  </div>
+</div>
+
 <script>
 function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
+
+const TAMANHOS = ['PP', 'P', 'M', 'G', 'GG', 'XGG'];
+const TAMANHOS_PADRAO = TAMANHOS.join(',');
 
 let marcas = [], categorias = [], produtos = [], looks = [];
 let marcaAtual = null, categoriaAtual = null;
@@ -174,6 +208,11 @@ function renderProdutos() {
 function renderCard(p) {
   const img = p.imagem ? `<img src="${p.imagem}" onerror="this.style.display='none'">` : '';
   const hasDetail = p.imagem_detalhe;
+  const tamanhosProduto = (p.tamanhos != null ? p.tamanhos : TAMANHOS_PADRAO)
+    .split(',').map(s => s.trim().toUpperCase());
+  const checkboxes = TAMANHOS.map(t =>
+    `<label class="size-chk"><input type="checkbox" value="${t}" ${tamanhosProduto.includes(t)?'checked':''}> ${t}</label>`
+  ).join('');
   return `
     <div class="product-card" data-id="${p.id}">
       <div class="card-header">
@@ -184,37 +223,80 @@ function renderCard(p) {
         </div>
       </div>
       <div class="card-body">
-        <div class="img-preview">${img}<span style="position:absolute;">FOTO CABIDE</span>${hasDetail?'<div class="detail-badge">DETALHE</div>':''}</div>
-        <div class="field"><label>Foto</label><input type="file" accept="image/*" onchange="uploadImg(this,${p.id},'imagem')"></div>
-        <div class="field"><label>Detalhe</label><input type="file" accept="image/*" onchange="uploadImg(this,${p.id},'imagem_detalhe')"></div>
+        <div class="img-preview">${img}${hasDetail?'<div class="detail-badge">DETALHE</div>':''}</div>
+        <div class="field"><label>Foto (cortada para o layout)</label><input type="file" accept="image/*" onchange="abrirCrop(this,${p.id},'imagem',175/240)"></div>
+        <div class="field"><label>Detalhe</label><input type="file" accept="image/*" onchange="abrirCrop(this,${p.id},'imagem_detalhe',1)"></div>
         <div class="field"><label>Nome</label><input type="text" class="f-nome" value="${esc(p.nome)}"></div>
-        <div class="field"><label>Descricao</label><textarea class="f-desc">${esc(p.descricao)}</textarea></div>
+        <div class="field"><label>Descricao</label><textarea class="f-desc" placeholder="Descreva o produto (tecido, caimento, detalhes...)">${esc(p.descricao)}</textarea></div>
         <div class="field"><label>Preco</label><input type="number" step="0.01" class="f-preco price-input" value="${p.preco||0}"></div>
         <div class="field"><label>Cores</label><input type="text" class="f-cores" value="${esc((p.cores||'').replace(/,/g,', '))}"></div>
+        <div class="field"><label>Tamanhos disponiveis</label><div class="sizes">${checkboxes}</div></div>
       </div>
     </div>`;
 }
 
-async function uploadImg(input, id, campo) {
-  const file = input.files[0]; if(!file) return;
-  const fd = new FormData(); fd.append('imagem', file);
+// ---- Corte de imagem (Cropper.js) ----
+let cropper = null;
+let cropAlvo = { id: null, campo: 'imagem' };
+
+function abrirCrop(input, id, campo, aspect) {
+  const file = input.files[0];
+  input.value = ''; // permite re-selecionar o mesmo arquivo depois
+  if (!file) return;
+  if (typeof Cropper === 'undefined') { // fallback se o CDN nao carregar
+    uploadDireto(file, id, campo);
+    return;
+  }
+  cropAlvo = { id, campo };
+  const reader = new FileReader();
+  reader.onload = e => {
+    const imgEl = document.getElementById('cropImg');
+    imgEl.src = e.target.result;
+    document.getElementById('cropModal').classList.add('show');
+    if (cropper) cropper.destroy();
+    cropper = new Cropper(imgEl, { aspectRatio: aspect, viewMode: 1, autoCropArea: 1, background: false });
+  };
+  reader.readAsDataURL(file);
+}
+
+function fecharCrop() {
+  if (cropper) { cropper.destroy(); cropper = null; }
+  document.getElementById('cropModal').classList.remove('show');
+}
+
+function confirmarCrop() {
+  if (!cropper) return;
+  const canvas = cropper.getCroppedCanvas({ maxWidth: 1400, maxHeight: 1400 });
+  canvas.toBlob(blob => {
+    fecharCrop();
+    uploadDireto(blob, cropAlvo.id, cropAlvo.campo, 'crop.jpg');
+  }, 'image/jpeg', 0.9);
+}
+
+async function uploadDireto(fileOrBlob, id, campo, filename) {
+  const fd = new FormData();
+  fd.append('imagem', fileOrBlob, filename || (fileOrBlob.name || 'foto.jpg'));
   showToast('Enviando...');
-  const r = await fetch('/api/upload', {method:'POST', body:fd});
+  const r = await fetch('/api/upload', { method: 'POST', body: fd });
   const d = await r.json();
-  if(d.success) {
-    await fetch(`/api/produto/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({[campo]:d.url})});
+  if (d.success) {
+    await fetch(`/api/produto/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [campo]: d.url }) });
     await carregarProdutos();
     showToast('Imagem salva!');
+  } else {
+    showToast(d.error || 'Erro no upload');
   }
 }
 
 async function salvarProduto(id) {
   const card = document.querySelector(`.product-card[data-id="${id}"]`);
+  const tamanhos = Array.from(card.querySelectorAll('.sizes input:checked')).map(c => c.value).join(',');
   const body = {
     nome: card.querySelector('.f-nome').value,
     descricao: card.querySelector('.f-desc').value,
     preco: parseFloat(card.querySelector('.f-preco').value)||0,
-    cores: card.querySelector('.f-cores').value
+    cores: card.querySelector('.f-cores').value,
+    tamanhos: tamanhos
   };
   await fetch(`/api/produto/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
   showToast('Produto salvo!');
@@ -250,7 +332,7 @@ async function carregarLooks() {
         <div class="product-grid" style="grid-template-columns:1fr 1fr;">
           ${l.pecas.map((peca,i) => `
             <div>
-              <div class="img-preview">${peca.imagem?`<img src="${peca.imagem}">`:''}<span style="position:absolute;">FOTO PECA</span></div>
+              <div class="img-preview">${peca.imagem?`<img src="${peca.imagem}">`:''}</div>
               <div class="field"><label>REF</label><input type="text" value="${esc(peca.ref)}"></div>
               <div class="field"><label>Marca</label><input type="text" value="${esc(peca.marca)}"></div>
               <div class="field"><label>Nome</label><input type="text" value="${esc(peca.nome)}"></div>
@@ -271,7 +353,7 @@ async function salvarTudo() {
   showToast(`${cards.length} produto(s) salvos!`);
 }
 function gerarPDFs() {
-  ['P','M','G','GG'].forEach((t,i) => { setTimeout(()=>window.open(`/pdf/${t}`,'_blank'), i*800); });
+  TAMANHOS.forEach((t,i) => { setTimeout(()=>window.open(`/pdf/${t}`,'_blank'), i*800); });
   showToast('Gerando PDFs...');
 }
 function showToast(msg) { const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2500); }

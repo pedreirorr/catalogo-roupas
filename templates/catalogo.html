@@ -116,11 +116,9 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; color:#1a1a1a; b
               {% if prod.imagem %}
                 <img src="{{ prod.imagem }}" alt="{{ prod.nome }}" onerror="this.style.display='none'">
               {% endif %}
-              <span style="position:absolute;z-index:0;">FOTO CABIDE</span>
               {% if prod.imagem_detalhe %}
                 <div class="detail-thumb">
                   <img src="{{ prod.imagem_detalhe }}" onerror="this.style.display='none'">
-                  <span style="position:absolute;z-index:0;font-size:7px;">DETALHE</span>
                 </div>
               {% endif %}
             </div>
@@ -156,7 +154,6 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; color:#1a1a1a; b
               {% if peca.imagem %}
                 <img src="{{ peca.imagem }}" alt="{{ peca.nome }}" onerror="this.style.display='none'">
               {% endif %}
-              <span style="position:absolute;">FOTO PECA</span>
             </div>
             <div class="ref">REF: {{ peca.ref }}</div>
             <div class="name">{{ peca.marca }}</div>
