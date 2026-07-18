@@ -6,9 +6,11 @@ Python + Flask + Supabase (PostgreSQL + Storage) + WeasyPrint
 """
 
 import os
-import base64
+import hmac
+from io import BytesIO
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify, send_file, redirect, url_for
+from functools import wraps
+from flask import Flask, render_template, request, jsonify, send_file, redirect, url_for, Response
 from werkzeug.utils import secure_filename
 from weasyprint import HTML
 from supabase import create_client, Client
@@ -26,6 +28,28 @@ BUCKET_NAME = os.environ.get('BUCKET_NAME', 'imagens')
 supabase: Client = None
 if SUPABASE_URL and SUPABASE_KEY:
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# Senha do painel admin (obrigatoria em producao)
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '')
+
+# Numero do WhatsApp dos botoes de compra (sem + e sem espacos)
+WHATSAPP_NUMBER = os.environ.get('WHATSAPP_NUMBER', '5562982103793')
+
+# Limite de 8MB por upload
+app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024
+EXTENSOES_PERMITIDAS = {'.jpg', '.jpeg', '.png', '.webp'}
+
+def requer_senha(f):
+    """Protege rotas com Basic Auth. O navegador pede a senha uma vez e reenvia sozinho."""
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not ADMIN_PASSWORD:
+            return Response('Configure a variavel ADMIN_PASSWORD no Render (Environment).', 500)
+        auth = request.authorization
+        if not auth or not hmac.compare_digest(auth.password or '', ADMIN_PASSWORD):
+            return Response('Acesso restrito', 401, {'WWW-Authenticate': 'Basic realm="Azoz Admin"'})
+        return f(*args, **kwargs)
+    return wrapper
 
 # ============ SUPABASE HELPERS ============
 
@@ -64,8 +88,8 @@ def init_supabase():
     for m in marcas:
         try:
             sb_table('marcas').upsert(m).execute()
-        except:
-            pass
+        except Exception as e:
+            print(f"Aviso ao inserir marca {m['nome']}: {e}")
 
     # Inserir categorias padrao
     cats = [
@@ -90,8 +114,8 @@ def init_supabase():
     for cat in cats:
         try:
             sb_table('categorias').upsert(cat).execute()
-        except:
-            pass
+        except Exception as e:
+            print(f"Aviso ao inserir categoria {cat['nome']}: {e}")
 
     print("✅ Supabase inicializado!")
 
@@ -107,7 +131,8 @@ def gerar_ref(marca_id, categoria_id):
     cat = sb_table('categorias').select('*').eq('id', categoria_id).single().execute().data
     cat_nome = cat['nome'] if cat else 'OUTROS'
 
-    cat_map = {'CAMISETAS': 'CM', 'POLO': 'PL', 'CAMISAS': 'CM', 'CASACOS': 'CS'}
+    # Cada categoria tem prefixo unico para a REF nunca se repetir
+    cat_map = {'CAMISETAS': 'CT', 'POLO': 'PL', 'CAMISAS': 'CM', 'CASACOS': 'CS'}
     cat_prefix = cat_map.get(cat_nome, 'XX')
 
     count = sb_table('produtos').select('*', count='exact').eq('marca_id', marca_id).eq('categoria_id', categoria_id).execute().count
@@ -148,14 +173,17 @@ def index():
     return redirect(url_for('admin'))
 
 @app.route('/admin')
+@requer_senha
 def admin():
     return render_template('admin.html')
 
 @app.route('/api/dados')
+@requer_senha
 def api_dados():
     return jsonify(get_dados_completos())
 
 @app.route('/api/marcas')
+@requer_senha
 def api_marcas():
     if not supabase:
         return jsonify([])
@@ -163,6 +191,7 @@ def api_marcas():
     return jsonify(resp.data or [])
 
 @app.route('/api/categorias/<int:marca_id>')
+@requer_senha
 def api_categorias(marca_id):
     if not supabase:
         return jsonify([])
@@ -170,6 +199,7 @@ def api_categorias(marca_id):
     return jsonify(resp.data or [])
 
 @app.route('/api/produtos/<int:marca_id>/<int:categoria_id>')
+@requer_senha
 def api_produtos(marca_id, categoria_id):
     if not supabase:
         return jsonify([])
@@ -177,6 +207,7 @@ def api_produtos(marca_id, categoria_id):
     return jsonify(resp.data or [])
 
 @app.route('/api/produto', methods=['POST'])
+@requer_senha
 def criar_produto():
     if not supabase:
         return jsonify({'error': 'Supabase nao configurado'}), 500
@@ -198,6 +229,7 @@ def criar_produto():
     return jsonify({'success': True, 'produto': resp.data[0] if resp.data else insert_data})
 
 @app.route('/api/produto/<int:prod_id>', methods=['PUT'])
+@requer_senha
 def atualizar_produto(prod_id):
     if not supabase:
         return jsonify({'error': 'Supabase nao configurado'}), 500
@@ -207,6 +239,7 @@ def atualizar_produto(prod_id):
     return jsonify({'success': True, 'produto': resp.data[0] if resp.data else update_data})
 
 @app.route('/api/produto/<int:prod_id>', methods=['DELETE'])
+@requer_senha
 def deletar_produto(prod_id):
     if not supabase:
         return jsonify({'error': 'Supabase nao configurado'}), 500
@@ -214,6 +247,7 @@ def deletar_produto(prod_id):
     return jsonify({'success': True})
 
 @app.route('/api/upload', methods=['POST'])
+@requer_senha
 def upload_imagem():
     if not supabase:
         return jsonify({'error': 'Supabase nao configurado'}), 500
@@ -223,7 +257,9 @@ def upload_imagem():
     if file.filename == '':
         return jsonify({'error': 'Arquivo vazio'}), 400
 
-    ext = os.path.splitext(secure_filename(file.filename))[1]
+    ext = os.path.splitext(secure_filename(file.filename))[1].lower()
+    if ext not in EXTENSOES_PERMITIDAS:
+        return jsonify({'error': f'Formato nao permitido. Use: {", ".join(sorted(EXTENSOES_PERMITIDAS))}'}), 400
     filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{os.urandom(4).hex()}{ext}"
 
     file_bytes = file.read()
@@ -236,20 +272,17 @@ def upload_imagem():
 def gerar_pdf(tamanho):
     tamanho = tamanho.upper()
     dados = get_dados_completos()
-    html = render_template('catalogo.html', titulo='AZOZ STORE', subtitulo=f'TAMANHO {tamanho}', marcas=dados['marcas'], produtos=dados['produtos'], looks=dados['looks'], base_url=request.host_url.rstrip('/'))
+    html = render_template('catalogo.html', titulo='AZOZ STORE', subtitulo=f'TAMANHO {tamanho}', marcas=dados['marcas'], produtos=dados['produtos'], looks=dados['looks'], whatsapp=WHATSAPP_NUMBER)
 
-    import tempfile
-    with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
-        HTML(string=html, base_url=request.host_url).write_pdf(tmp.name)
-        tmp_path = tmp.name
-
-    return send_file(tmp_path, as_attachment=True, download_name=f'catalogo_{tamanho}.pdf')
+    # PDF gerado em memoria: nada fica gravado no disco do servidor
+    pdf_bytes = HTML(string=html, base_url=request.host_url).write_pdf()
+    return send_file(BytesIO(pdf_bytes), as_attachment=True, download_name=f'catalogo_{tamanho}.pdf', mimetype='application/pdf')
 
 @app.route('/preview/<tamanho>')
 def preview_pdf(tamanho):
     tamanho = tamanho.upper()
     dados = get_dados_completos()
-    return render_template('catalogo.html', titulo='AZOZ STORE', subtitulo=f'TAMANHO {tamanho}', marcas=dados['marcas'], produtos=dados['produtos'], looks=dados['looks'], base_url=request.host_url.rstrip('/'))
+    return render_template('catalogo.html', titulo='AZOZ STORE', subtitulo=f'TAMANHO {tamanho}', marcas=dados['marcas'], produtos=dados['produtos'], looks=dados['looks'], whatsapp=WHATSAPP_NUMBER)
 
 if __name__ == '__main__':
     init_supabase()
