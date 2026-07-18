@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AZOZ STORE - Painel de Edicao</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; background:#f5f5f0; color:#1a1a1a; }
+.header { background:#1a1a1a; color:#fff; padding:18px 28px; display:flex; justify-content:space-between; align-items:center; position:sticky; top:0; z-index:100; }
+.header h1 { font-size:17px; font-weight:700; letter-spacing:4px; }
+.header .actions { display:flex; gap:10px; }
+.btn { padding:9px 18px; font-size:11px; font-weight:600; letter-spacing:1px; text-transform:uppercase; border:none; cursor:pointer; transition:.2s; }
+.btn-primary { background:#fff; color:#1a1a1a; }
+.btn-primary:hover { background:#e8e8e8; }
+.btn-secondary { background:transparent; color:#fff; border:1px solid #fff; }
+.btn-secondary:hover { background:#fff; color:#1a1a1a; }
+.btn-danger { background:#c0392b; color:#fff; }
+.btn-success { background:#27ae60; color:#fff; }
+
+.container { max-width:1200px; margin:0 auto; padding:24px; }
+
+.tabs { display:flex; gap:4px; margin-bottom:20px; border-bottom:1px solid #ddd; background:#fff; padding:0 16px; }
+.tab { padding:12px 20px; font-size:12px; font-weight:600; letter-spacing:1px; text-transform:uppercase; cursor:pointer; border:none; background:transparent; color:#999; border-bottom:2px solid transparent; }
+.tab.active { color:#1a1a1a; border-bottom-color:#1a1a1a; }
+
+.section { display:none; }
+.section.active { display:block; }
+
+.marca-selector { display:flex; gap:6px; margin-bottom:16px; flex-wrap:wrap; }
+.marca-btn { padding:10px 18px; border:1px solid #ddd; background:#fff; font-size:11px; font-weight:600; letter-spacing:2px; text-transform:uppercase; cursor:pointer; }
+.marca-btn.active { background:#1a1a1a; color:#fff; border-color:#1a1a1a; }
+
+.categoria-selector { display:flex; gap:6px; margin-bottom:16px; }
+.cat-btn { padding:8px 14px; border:1px solid #ddd; background:#fff; font-size:11px; font-weight:600; letter-spacing:1px; text-transform:uppercase; cursor:pointer; }
+.cat-btn.active { background:#1a1a1a; color:#fff; border-color:#1a1a1a; }
+
+.add-btn { width:100%; padding:14px; background:#f0ece6; border:2px dashed #bbb; color:#666; font-size:12px; font-weight:600; letter-spacing:1px; text-transform:uppercase; cursor:pointer; margin-bottom:16px; }
+.add-btn:hover { border-color:#1a1a1a; color:#1a1a1a; }
+
+.product-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:16px; }
+.product-card { background:#fff; border:1px solid #ddd; border-radius:6px; overflow:hidden; }
+.product-card .card-header { background:#f8f8f8; padding:10px 14px; display:flex; justify-content:space-between; align-items:center; }
+.product-card .card-header .ref { font-size:11px; font-weight:700; letter-spacing:1px; }
+.product-card .card-header .actions { display:flex; gap:5px; }
+.product-card .card-header .actions button { padding:4px 10px; font-size:10px; border:none; cursor:pointer; }
+.product-card .card-body { padding:14px; }
+.product-card .img-preview { width:100%; height:180px; background:#e8e8e8; display:flex; align-items:center; justify-content:center; color:#999; font-size:10px; letter-spacing:1px; text-transform:uppercase; margin-bottom:10px; position:relative; overflow:hidden; }
+.product-card .img-preview img { width:100%; height:100%; object-fit:cover; }
+.product-card .img-preview .detail-badge { position:absolute; bottom:5px; right:5px; background:#1a1a1a; color:#fff; font-size:9px; padding:3px 7px; }
+.product-card .field { margin-bottom:8px; }
+.product-card .field label { font-size:10px; color:#999; letter-spacing:1px; text-transform:uppercase; display:block; margin-bottom:2px; }
+.product-card .field input, .product-card .field textarea { width:100%; padding:7px 10px; border:1px solid #ddd; font-size:13px; font-family:inherit; }
+.product-card .field input:focus, .product-card .field textarea:focus { outline:none; border-color:#1a1a1a; }
+.product-card .field textarea { min-height:50px; resize:vertical; }
+.product-card .price-input { font-size:16px; font-weight:700; }
+
+.toast { position:fixed; bottom:24px; right:24px; background:#1a1a1a; color:#fff; padding:14px 22px; font-size:12px; letter-spacing:1px; z-index:1000; display:none; }
+.toast.show { display:block; }
+
+.empty { text-align:center; padding:50px 20px; color:#bbb; font-size:13px; letter-spacing:1px; }
+
+.pdf-actions { display:flex; gap:10px; margin-bottom:20px; flex-wrap:wrap; }
+.pdf-actions a { padding:10px 18px; background:#1a1a1a; color:#fff; font-size:11px; font-weight:600; letter-spacing:1px; text-transform:uppercase; text-decoration:none; }
+.pdf-actions a:hover { background:#333; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>AZOZ STORE - PAINEL DE EDICAO</h1>
+  <div class="actions">
+    <button class="btn btn-secondary" onclick="salvarTudo()">Salvar no Banco</button>
+    <button class="btn btn-primary" onclick="gerarPDFs()">Gerar PDFs</button>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab active" data-tab="produtos">Produtos</button>
+  <button class="tab" data-tab="looks">Looks</button>
+</div>
+
+<div class="container">
+  <div id="tab-produtos" class="section active">
+    <div class="pdf-actions">
+      <a href="/pdf/P" target="_blank">PDF Tamanho P</a>
+      <a href="/pdf/M" target="_blank">PDF Tamanho M</a>
+      <a href="/pdf/G" target="_blank">PDF Tamanho G</a>
+      <a href="/pdf/GG" target="_blank">PDF Tamanho GG</a>
+      <a href="/preview/M" target="_blank" style="background:#666;">Preview HTML</a>
+    </div>
+    <div class="marca-selector" id="marcaSelector"></div>
+    <div class="categoria-selector" id="categoriaSelector"></div>
+    <div id="produtosContainer"></div>
+  </div>
+
+  <div id="tab-looks" class="section">
+    <div id="looksContainer"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
+
+let marcas = [], categorias = [], produtos = [], looks = [];
+let marcaAtual = null, categoriaAtual = null;
+
+async function init() {
+  await carregarMarcas();
+  if (marcas.length) { marcaAtual = marcas[0]; await carregarCategorias(marcas[0].id); }
+  await carregarLooks();
+}
+
+async function carregarMarcas() {
+  const r = await fetch('/api/marcas');
+  marcas = await r.json();
+  const el = document.getElementById('marcaSelector');
+  el.innerHTML = marcas.map(m => `<button class="marca-btn ${m.id===marcaAtual?.id?'active':''}" onclick="selecionarMarca(${m.id})">${m.nome}</button>`).join('');
+}
+
+async function carregarCategorias(marcaId) {
+  const r = await fetch(`/api/categorias/${marcaId}`);
+  categorias = await r.json();
+  if (categorias.length) categoriaAtual = categorias[0];
+  const el = document.getElementById('categoriaSelector');
+  el.innerHTML = categorias.map(c => `<button class="cat-btn ${c.id===categoriaAtual?.id?'active':''}" onclick="selecionarCategoria(${c.id})">${c.nome}</button>`).join('');
+  await carregarProdutos();
+}
+
+async function carregarProdutos() {
+  if (!marcaAtual || !categoriaAtual) return;
+  const r = await fetch(`/api/produtos/${marcaAtual.id}/${categoriaAtual.id}`);
+  produtos = await r.json();
+  renderProdutos();
+}
+
+function selecionarMarca(id) {
+  marcaAtual = marcas.find(m => m.id === id);
+  carregarCategorias(id);
+  renderMarcaSelector();
+}
+
+function selecionarCategoria(id) {
+  categoriaAtual = categorias.find(c => c.id === id);
+  renderCategoriaSelector();
+  carregarProdutos();
+}
+
+function renderMarcaSelector() {
+  const el = document.getElementById('marcaSelector');
+  el.innerHTML = marcas.map(m => `<button class="marca-btn ${m.id===marcaAtual?.id?'active':''}" onclick="selecionarMarca(${m.id})">${m.nome}</button>`).join('');
+}
+
+function renderCategoriaSelector() {
+  const el = document.getElementById('categoriaSelector');
+  el.innerHTML = categorias.map(c => `<button class="cat-btn ${c.id===categoriaAtual?.id?'active':''}" onclick="selecionarCategoria(${c.id})">${c.nome}</button>`).join('');
+}
+
+function renderProdutos() {
+  const container = document.getElementById('produtosContainer');
+  if (!marcaAtual || !categoriaAtual) { container.innerHTML = '<div class="empty">Selecione marca e categoria</div>'; return; }
+
+  let html = `<button class="add-btn" onclick="adicionarProduto()">+ Adicionar Produto</button>`;
+  if (!produtos.length) { html += '<div class="empty">Nenhum produto</div>'; }
+  else {
+    html += '<div class="product-grid">';
+    produtos.forEach(p => { html += renderCard(p); });
+    html += '</div>';
+  }
+  container.innerHTML = html;
+}
+
+function renderCard(p) {
+  const img = p.imagem ? `<img src="${p.imagem}" onerror="this.style.display='none'">` : '';
+  const hasDetail = p.imagem_detalhe;
+  return `
+    <div class="product-card" data-id="${p.id}">
+      <div class="card-header">
+        <span class="ref">REF: ${p.ref}</span>
+        <div class="actions">
+          <button class="btn-success" onclick="salvarProduto(${p.id})">Salvar</button>
+          <button class="btn-danger" onclick="removerProduto(${p.id})">X</button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="img-preview">${img}<span style="position:absolute;">FOTO CABIDE</span>${hasDetail?'<div class="detail-badge">DETALHE</div>':''}</div>
+        <div class="field"><label>Foto</label><input type="file" accept="image/*" onchange="uploadImg(this,${p.id},'imagem')"></div>
+        <div class="field"><label>Detalhe</label><input type="file" accept="image/*" onchange="uploadImg(this,${p.id},'imagem_detalhe')"></div>
+        <div class="field"><label>Nome</label><input type="text" class="f-nome" value="${esc(p.nome)}"></div>
+        <div class="field"><label>Descricao</label><textarea class="f-desc">${esc(p.descricao)}</textarea></div>
+        <div class="field"><label>Preco</label><input type="number" step="0.01" class="f-preco price-input" value="${p.preco||0}"></div>
+        <div class="field"><label>Cores</label><input type="text" class="f-cores" value="${esc((p.cores||'').replace(/,/g,', '))}"></div>
+      </div>
+    </div>`;
+}
+
+async function uploadImg(input, id, campo) {
+  const file = input.files[0]; if(!file) return;
+  const fd = new FormData(); fd.append('imagem', file);
+  showToast('Enviando...');
+  const r = await fetch('/api/upload', {method:'POST', body:fd});
+  const d = await r.json();
+  if(d.success) {
+    await fetch(`/api/produto/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({[campo]:d.url})});
+    await carregarProdutos();
+    showToast('Imagem salva!');
+  }
+}
+
+async function salvarProduto(id) {
+  const card = document.querySelector(`.product-card[data-id="${id}"]`);
+  const body = {
+    nome: card.querySelector('.f-nome').value,
+    descricao: card.querySelector('.f-desc').value,
+    preco: parseFloat(card.querySelector('.f-preco').value)||0,
+    cores: card.querySelector('.f-cores').value
+  };
+  await fetch(`/api/produto/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  showToast('Produto salvo!');
+}
+
+async function adicionarProduto() {
+  if(!marcaAtual || !categoriaAtual) return;
+  const r = await fetch('/api/produto', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({marca_id:marcaAtual.id, categoria_id:categoriaAtual.id, nome:'Novo Produto'})
+  });
+  const d = await r.json();
+  if(d.success) { await carregarProdutos(); showToast('Adicionado: '+d.produto.ref); }
+}
+
+async function removerProduto(id) {
+  if(!confirm('Remover este produto?')) return;
+  await fetch(`/api/produto/${id}`, {method:'DELETE'});
+  await carregarProdutos();
+  showToast('Removido!');
+}
+
+async function carregarLooks() {
+  const r = await fetch('/api/dados');
+  const d = await r.json();
+  looks = d.looks;
+  const el = document.getElementById('looksContainer');
+  if(!looks.length) { el.innerHTML = '<div class="empty">Nenhum look</div>'; return; }
+  el.innerHTML = looks.map(l => `
+    <div class="product-card" style="margin-bottom:16px;">
+      <div class="card-header"><span class="ref">${l.nome}</span></div>
+      <div class="card-body">
+        <div class="product-grid" style="grid-template-columns:1fr 1fr;">
+          ${l.pecas.map((peca,i) => `
+            <div>
+              <div class="img-preview">${peca.imagem?`<img src="${peca.imagem}">`:''}<span style="position:absolute;">FOTO PECA</span></div>
+              <div class="field"><label>REF</label><input type="text" value="${esc(peca.ref)}"></div>
+              <div class="field"><label>Marca</label><input type="text" value="${esc(peca.marca)}"></div>
+              <div class="field"><label>Nome</label><input type="text" value="${esc(peca.nome)}"></div>
+              <div class="field"><label>Descricao</label><textarea>${esc(peca.descricao)}</textarea></div>
+              <div class="field"><label>Preco</label><input type="number" step="0.01" class="price-input" value="${peca.preco||0}"></div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function salvarTudo() {
+  const cards = document.querySelectorAll('#produtosContainer .product-card[data-id]');
+  if (!cards.length) { showToast('Nenhum produto para salvar'); return; }
+  for (const card of cards) { await salvarProduto(card.dataset.id); }
+  showToast(`${cards.length} produto(s) salvos!`);
+}
+function gerarPDFs() {
+  ['P','M','G','GG'].forEach((t,i) => { setTimeout(()=>window.open(`/pdf/${t}`,'_blank'), i*800); });
+  showToast('Gerando PDFs...');
+}
+function showToast(msg) { const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2500); }
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('tab-'+tab.dataset.tab).classList.add('active');
+  });
+});
+
+init();
+</script>
+</body>
+</html>
