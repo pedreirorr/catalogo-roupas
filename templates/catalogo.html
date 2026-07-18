@@ -90,9 +90,13 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; color:#1a1a1a; b
   <div class="page brand-menu" id="menu-{{ marca_slug }}">
     <h2>{{ marca.nome }}</h2>
     <div class="categories">
-      {% for cat_nome in marca.categorias.keys() %}
-        <a href="#{{ marca_slug }}-{{ slug(cat_nome) }}-0" class="cat-item">{{ cat_nome }}</a>
-      {% endfor %}
+      {% if marca.categorias %}
+        {% for cat_nome in marca.categorias.keys() %}
+          <a href="#{{ marca_slug }}-{{ slug(cat_nome) }}-0" class="cat-item">{{ cat_nome }}</a>
+        {% endfor %}
+      {% else %}
+        <div class="cat-item" style="color:#bbb;border-style:dashed;">NOVIDADES EM BREVE</div>
+      {% endif %}
     </div>
     <div class="page-footer">
       <a href="#capa">Voltar ao Menu Principal</a>

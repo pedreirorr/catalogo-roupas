@@ -154,8 +154,9 @@ def get_dados_completos():
             prods = prods_resp.data or []
             if prods:
                 categorias[cat['nome']] = prods
-        if categorias:
-            produtos[marca['nome']] = {'nome': marca['nome'], 'categorias': categorias}
+        # Inclui a marca sempre, mesmo sem produtos, para que os links da capa
+        # tenham sempre uma pagina de destino (PDF totalmente navegavel/clicavel)
+        produtos[marca['nome']] = {'nome': marca['nome'], 'categorias': categorias}
 
     looks_resp = sb_table('looks').select('*').execute()
     looks = []
