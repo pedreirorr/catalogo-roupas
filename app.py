@@ -325,7 +325,7 @@ def _keep_alive():
     if not base:
         return
     ping_url = f'{base}/health'
-    intervalo = int(os.environ.get('KEEP_ALIVE_SECONDS', 14 * 60))
+    intervalo = int(os.environ.get('KEEP_ALIVE_SECONDS', 10 * 60))
     while True:
         time.sleep(intervalo)
         try:
