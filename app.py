@@ -304,6 +304,39 @@ def api_contagem():
                 contagem[t] += 1
     return jsonify(contagem)
 
+@app.route('/api/resumo')
+@requer_senha
+def api_resumo():
+    """Quantidade de produtos por marca e por categoria (para os contadores do painel)."""
+    if not supabase:
+        return jsonify({'marcas': {}, 'categorias': {}})
+    prods = sb_table('produtos').select('marca_id,categoria_id').execute().data or []
+    por_marca, por_cat = {}, {}
+    for p in prods:
+        mid, cid = str(p.get('marca_id')), str(p.get('categoria_id'))
+        por_marca[mid] = por_marca.get(mid, 0) + 1
+        por_cat[cid] = por_cat.get(cid, 0) + 1
+    return jsonify({'marcas': por_marca, 'categorias': por_cat})
+
+@app.route('/api/busca')
+@requer_senha
+def api_busca():
+    """Busca produtos (inclui rascunhos) por nome ou REF, em todas as marcas."""
+    q = (request.args.get('q') or '').strip().lower()
+    if not supabase or not q:
+        return jsonify([])
+    prods = sb_table('produtos').select('*').execute().data or []
+    marcas = {m['id']: m['nome'] for m in (sb_table('marcas').select('id,nome').execute().data or [])}
+    cats = {c['id']: c['nome'] for c in (sb_table('categorias').select('id,nome').execute().data or [])}
+    res = []
+    for p in prods:
+        if q in (p.get('nome') or '').lower() or q in (p.get('ref') or '').lower():
+            p = dict(p)
+            p['marca_nome'] = marcas.get(p.get('marca_id'), '')
+            p['categoria_nome'] = cats.get(p.get('categoria_id'), '')
+            res.append(p)
+    return jsonify(res[:50])
+
 # ============ LOOKS E PECAS ============
 
 @app.route('/api/look', methods=['POST'])
