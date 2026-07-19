@@ -138,8 +138,17 @@ def gerar_ref(marca_id, categoria_id):
     cat_map = {'CAMISETAS': 'CT', 'POLO': 'PL', 'CAMISAS': 'CM', 'CASACOS': 'CS'}
     cat_prefix = cat_map.get(cat_nome, 'XX')
 
-    count = sb_table('produtos').select('*', count='exact').eq('marca_id', marca_id).eq('categoria_id', categoria_id).execute().count
-    return f"{cat_prefix}{prefixo}{count + 1:02d}"
+    # Numera a partir do maior sufixo ja existente (robusto a exclusoes de
+    # produtos: evita gerar uma REF que ja pertence a outro produto).
+    inicio = f"{cat_prefix}{prefixo}"
+    existentes = sb_table('produtos').select('ref').eq('marca_id', marca_id).eq('categoria_id', categoria_id).execute().data or []
+    maior = 0
+    for p in existentes:
+        ref = (p.get('ref') or '')
+        sufixo = ref[len(inicio):]
+        if ref.startswith(inicio) and sufixo.isdigit():
+            maior = max(maior, int(sufixo))
+    return f"{inicio}{maior + 1:02d}"
 
 # Tamanhos disponiveis no catalogo (usados nos checkboxes do admin e nos PDFs por tamanho)
 TAMANHOS = ['PP', 'P', 'M', 'G', 'GG', 'XGG']
@@ -230,7 +239,12 @@ def api_categorias(marca_id):
 def api_produtos(marca_id, categoria_id):
     if not supabase:
         return jsonify([])
-    resp = sb_table('produtos').select('*').eq('marca_id', marca_id).eq('categoria_id', categoria_id).eq('ativo', True).order('id').execute()
+    q = sb_table('produtos').select('*').eq('marca_id', marca_id).eq('categoria_id', categoria_id)
+    # No painel admin (?incluir_rascunho=1) mostramos tambem os rascunhos (ativo=False).
+    # O PDF continua usando get_dados_completos, que filtra ativo=True.
+    if request.args.get('incluir_rascunho') != '1':
+        q = q.eq('ativo', True)
+    resp = q.order('id').execute()
     return jsonify(resp.data or [])
 
 @app.route('/api/produto', methods=['POST'])
@@ -251,7 +265,8 @@ def criar_produto():
         'imagem_detalhe': data.get('imagem_detalhe', ''),
         'cores': data.get('cores', ''),
         'tamanhos': data.get('tamanhos', ','.join(TAMANHOS)),
-        'ativo': True
+        # Nasce como rascunho: nao entra no PDF ate ser publicado no painel.
+        'ativo': data.get('ativo', False)
     }
     resp = sb_table('produtos').insert(insert_data).execute()
     return jsonify({'success': True, 'produto': resp.data[0] if resp.data else insert_data})
@@ -271,8 +286,23 @@ def atualizar_produto(prod_id):
 def deletar_produto(prod_id):
     if not supabase:
         return jsonify({'error': 'Supabase nao configurado'}), 500
-    sb_table('produtos').update({'ativo': False}).eq('id', prod_id).execute()
+    # Remocao definitiva. (ativo=False agora significa "rascunho", nao "removido".)
+    sb_table('produtos').delete().eq('id', prod_id).execute()
     return jsonify({'success': True})
+
+@app.route('/api/contagem')
+@requer_senha
+def api_contagem():
+    """Quantos produtos publicados entram no PDF de cada tamanho."""
+    contagem = {t: 0 for t in TAMANHOS}
+    if not supabase:
+        return jsonify(contagem)
+    resp = sb_table('produtos').select('tamanhos').eq('ativo', True).execute()
+    for p in resp.data or []:
+        for t in TAMANHOS:
+            if _disponivel_no_tamanho(p, t):
+                contagem[t] += 1
+    return jsonify(contagem)
 
 # ============ LOOKS E PECAS ============
 
