@@ -80,14 +80,20 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; background:#f5f5
 .crop-img-wrap { background:#222; max-height:60vh; }
 .crop-img-wrap img { display:block; max-width:100%; }
 .crop-actions { display:flex; gap:10px; justify-content:flex-end; padding:12px 16px; }
+
+/* Rascunho / publicado / status de autosave */
+.badge-rascunho { background:#e67e22; color:#fff; font-size:9px; font-weight:700; padding:2px 7px; border-radius:3px; letter-spacing:1px; margin-left:6px; }
+.product-card.rascunho { border-color:#e67e22; }
+.btn-secondary-sm { padding:4px 10px; font-size:10px; border:1px solid #bbb; background:#fff; color:#555; cursor:pointer; }
+.save-status { font-size:10px; letter-spacing:1px; color:#27ae60; padding:6px 14px 0; min-height:16px; text-transform:uppercase; }
+.pdf-hint { font-size:11px; color:#999; margin:-8px 0 16px; }
 </style>
 </head>
 <body>
 <div class="header">
   <h1>AZOZ STORE - PAINEL DE EDICAO</h1>
   <div class="actions">
-    <button class="btn btn-secondary" onclick="salvarTudo()">Salvar no Banco</button>
-    <button class="btn btn-primary" onclick="gerarPDFs()">Gerar PDFs</button>
+    <button class="btn btn-secondary" onclick="salvarTudo()">Salvar tudo</button>
   </div>
 </div>
 
@@ -98,15 +104,8 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; background:#f5f5
 
 <div class="container">
   <div id="tab-produtos" class="section active">
-    <div class="pdf-actions">
-      <a href="/pdf/PP" target="_blank">PDF Tamanho PP</a>
-      <a href="/pdf/P" target="_blank">PDF Tamanho P</a>
-      <a href="/pdf/M" target="_blank">PDF Tamanho M</a>
-      <a href="/pdf/G" target="_blank">PDF Tamanho G</a>
-      <a href="/pdf/GG" target="_blank">PDF Tamanho GG</a>
-      <a href="/pdf/XGG" target="_blank">PDF Tamanho XGG</a>
-      <a href="/preview/M" target="_blank" style="background:#666;">Preview HTML</a>
-    </div>
+    <div class="pdf-actions" id="pdfActions"></div>
+    <div class="pdf-hint">Os numeros mostram quantos produtos publicados entram em cada PDF. Rascunhos nao aparecem.</div>
     <div class="marca-selector" id="marcaSelector"></div>
     <div class="categoria-selector" id="categoriaSelector"></div>
     <div id="produtosContainer"></div>
@@ -143,6 +142,7 @@ let marcaAtual = null, categoriaAtual = null;
 async function init() {
   await carregarMarcas();
   if (marcas.length) { marcaAtual = marcas[0]; await carregarCategorias(marcas[0].id); }
+  await carregarContagem();
   await carregarLooks();
 }
 
@@ -164,22 +164,34 @@ async function carregarCategorias(marcaId) {
 
 async function carregarProdutos() {
   if (!marcaAtual || !categoriaAtual) return;
-  const r = await fetch(`/api/produtos/${marcaAtual.id}/${categoriaAtual.id}`);
+  const r = await fetch(`/api/produtos/${marcaAtual.id}/${categoriaAtual.id}?incluir_rascunho=1`);
   produtos = await r.json();
   produtos.sort((a, b) => b.id - a.id); // mais recentes primeiro no painel
   renderProdutos();
 }
 
-function selecionarMarca(id) {
+async function carregarContagem() {
+  let c = {};
+  try { c = await (await fetch('/api/contagem')).json(); } catch (e) {}
+  const el = document.getElementById('pdfActions');
+  if (!el) return;
+  el.innerHTML = TAMANHOS.map(t =>
+    `<a href="/pdf/${t}" target="_blank" onclick="showToast('Gerando PDF ${t}... aguarde o download')">PDF ${t} (${c[t]||0})</a>`
+  ).join('') + `<a href="/preview/M" target="_blank" style="background:#666;">Preview HTML</a>`;
+}
+
+async function selecionarMarca(id) {
+  await flushSaves(); // nao perde edicoes pendentes ao trocar de marca
   marcaAtual = marcas.find(m => m.id === id);
-  carregarCategorias(id);
+  await carregarCategorias(id);
   renderMarcaSelector();
 }
 
-function selecionarCategoria(id) {
+async function selecionarCategoria(id) {
+  await flushSaves();
   categoriaAtual = categorias.find(c => c.id === id);
   renderCategoriaSelector();
-  carregarProdutos();
+  await carregarProdutos();
 }
 
 function renderMarcaSelector() {
@@ -204,6 +216,15 @@ function renderProdutos() {
     html += '</div>';
   }
   container.innerHTML = html;
+
+  // Autosave: salva o produto sozinho ao editar qualquer campo (com debounce)
+  container.querySelectorAll('.product-card[data-id]').forEach(card => {
+    const id = card.dataset.id;
+    card.querySelectorAll('.f-nome, .f-desc, .f-preco, .f-cores').forEach(inp =>
+      inp.addEventListener('input', () => agendarSalvar(id)));
+    card.querySelectorAll('.sizes input').forEach(chk =>
+      chk.addEventListener('change', () => agendarSalvar(id)));
+  });
 }
 
 function renderCard(p) {
@@ -217,15 +238,20 @@ function renderCard(p) {
   const detailThumb = hasDetail
     ? `<div class="detail-badge" style="padding:0;width:48px;height:48px;overflow:hidden;border:2px solid #fff;"><img src="${p.imagem_detalhe}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none'"></div>`
     : '';
+  const rascunho = !p.ativo;
+  const botaoPublicar = rascunho
+    ? `<button class="btn-success" onclick="definirAtivo(${p.id},true)">Publicar</button>`
+    : `<button class="btn-secondary-sm" onclick="definirAtivo(${p.id},false)">Despublicar</button>`;
   return `
-    <div class="product-card" data-id="${p.id}">
+    <div class="product-card ${rascunho ? 'rascunho' : ''}" data-id="${p.id}">
       <div class="card-header">
-        <span class="ref">REF: ${p.ref}</span>
+        <span class="ref">REF: ${p.ref}${rascunho ? '<span class="badge-rascunho">RASCUNHO</span>' : ''}</span>
         <div class="actions">
-          <button class="btn-success" onclick="salvarProduto(${p.id})">Salvar</button>
+          ${botaoPublicar}
           <button class="btn-danger" onclick="removerProduto(${p.id})">X</button>
         </div>
       </div>
+      <div class="save-status" data-status="${p.id}"></div>
       <div class="card-body">
         <div class="img-preview">${img}${detailThumb}</div>
         <div class="field"><label>Foto (cortada para o layout)</label><input type="file" accept="image/*" onchange="abrirCrop(this,${p.id},'imagem',250/340)"></div>
@@ -311,8 +337,28 @@ function abrirCropPeca(input, pecaId) {
   });
 }
 
-async function salvarProduto(id) {
+// ---- Autosave por produto ----
+const saveTimers = {};
+
+function setStatus(id, txt, cor) {
+  const el = document.querySelector(`.save-status[data-status="${id}"]`);
+  if (el) { el.textContent = txt; el.style.color = cor || '#27ae60'; }
+}
+
+function agendarSalvar(id) {
+  setStatus(id, 'Editando...', '#e67e22');
+  clearTimeout(saveTimers[id]);
+  saveTimers[id] = setTimeout(() => { delete saveTimers[id]; salvarProduto(id, true); }, 900);
+}
+
+async function flushSaves() {
+  const ids = Object.keys(saveTimers);
+  for (const id of ids) { clearTimeout(saveTimers[id]); delete saveTimers[id]; await salvarProduto(id, true); }
+}
+
+async function salvarProduto(id, silencioso) {
   const card = document.querySelector(`.product-card[data-id="${id}"]`);
+  if (!card) return;
   const tamanhos = Array.from(card.querySelectorAll('.sizes input:checked')).map(c => c.value).join(',');
   const body = {
     nome: card.querySelector('.f-nome').value,
@@ -321,8 +367,24 @@ async function salvarProduto(id) {
     cores: card.querySelector('.f-cores').value,
     tamanhos: tamanhos
   };
-  await fetch(`/api/produto/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
-  showToast('Produto salvo!');
+  setStatus(id, 'Salvando...', '#999');
+  try {
+    await fetch(`/api/produto/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    if (silencioso) setStatus(id, 'Salvo ✓', '#27ae60'); else showToast('Produto salvo!');
+  } catch (e) {
+    setStatus(id, 'Erro ao salvar', '#c0392b');
+    if (!silencioso) showToast('Erro ao salvar');
+  }
+}
+
+async function definirAtivo(id, ativo) {
+  // garante que as edicoes pendentes desse card foram salvas antes de publicar
+  if (saveTimers[id]) { clearTimeout(saveTimers[id]); delete saveTimers[id]; }
+  await salvarProduto(id, true);
+  await fetch(`/api/produto/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ativo})});
+  await carregarProdutos();
+  carregarContagem();
+  showToast(ativo ? 'Produto publicado! Ja entra no PDF.' : 'Voltou para rascunho (fora do PDF)');
 }
 
 async function adicionarProduto() {
@@ -332,13 +394,15 @@ async function adicionarProduto() {
     body:JSON.stringify({marca_id:marcaAtual.id, categoria_id:categoriaAtual.id, nome:'Novo Produto'})
   });
   const d = await r.json();
-  if(d.success) { await carregarProdutos(); showToast('Adicionado: '+d.produto.ref); }
+  if(d.success) { await carregarProdutos(); showToast('Rascunho criado: '+d.produto.ref+'. Preencha e clique Publicar.'); }
 }
 
 async function removerProduto(id) {
-  if(!confirm('Remover este produto?')) return;
+  if(!confirm('Remover este produto? Esta acao e definitiva.')) return;
+  if (saveTimers[id]) { clearTimeout(saveTimers[id]); delete saveTimers[id]; }
   await fetch(`/api/produto/${id}`, {method:'DELETE'});
   await carregarProdutos();
+  carregarContagem();
   showToast('Removido!');
 }
 
@@ -476,24 +540,27 @@ async function removerPeca(id) {
 }
 
 async function salvarTudo() {
+  await flushSaves();
   const cards = document.querySelectorAll('#produtosContainer .product-card[data-id]');
   if (!cards.length) { showToast('Nenhum produto para salvar'); return; }
-  for (const card of cards) { await salvarProduto(card.dataset.id); }
+  for (const card of cards) { await salvarProduto(card.dataset.id, true); }
   showToast(`${cards.length} produto(s) salvos!`);
-}
-function gerarPDFs() {
-  TAMANHOS.forEach((t,i) => { setTimeout(()=>window.open(`/pdf/${t}`,'_blank'), i*800); });
-  showToast('Gerando PDFs...');
 }
 function showToast(msg) { const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2500); }
 
 document.querySelectorAll('.tab').forEach(tab => {
-  tab.addEventListener('click', () => {
+  tab.addEventListener('click', async () => {
+    await flushSaves(); // salva pendencias antes de trocar de aba
     document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
     document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));
     tab.classList.add('active');
     document.getElementById('tab-'+tab.dataset.tab).classList.add('active');
   });
+});
+
+// Aviso caso feche a pagina com algo ainda nao salvo (raro, dado o autosave)
+window.addEventListener('beforeunload', (e) => {
+  if (Object.keys(saveTimers).length) { e.preventDefault(); e.returnValue = ''; }
 });
 
 init();
