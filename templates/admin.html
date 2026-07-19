@@ -228,7 +228,7 @@ function renderCard(p) {
       </div>
       <div class="card-body">
         <div class="img-preview">${img}${detailThumb}</div>
-        <div class="field"><label>Foto (cortada para o layout)</label><input type="file" accept="image/*" onchange="abrirCrop(this,${p.id},'imagem',175/240)"></div>
+        <div class="field"><label>Foto (cortada para o layout)</label><input type="file" accept="image/*" onchange="abrirCrop(this,${p.id},'imagem',250/340)"></div>
         <div class="field"><label>Detalhe</label><input type="file" accept="image/*" onchange="abrirCrop(this,${p.id},'imagem_detalhe',1)"></div>
         <div class="field"><label>Nome</label><input type="text" class="f-nome" value="${esc(p.nome)}"></div>
         <div class="field"><label>Descricao</label><textarea class="f-desc" placeholder="Descreva o produto (tecido, caimento, detalhes...)">${esc(p.descricao)}</textarea></div>
@@ -270,13 +270,17 @@ function fecharCrop() {
 
 function confirmarCrop() {
   if (!cropper) return;
-  const canvas = cropper.getCroppedCanvas({ maxWidth: 1400, maxHeight: 1400 });
+  const canvas = cropper.getCroppedCanvas({
+    maxWidth: 2200, maxHeight: 2200,
+    imageSmoothingEnabled: true,
+    imageSmoothingQuality: 'high'
+  });
   const cb = cropCallback;
   canvas.toBlob(async blob => {
     fecharCrop();
     const url = await enviarImagem(blob, 'crop.jpg');
     if (url && cb) cb(url);
-  }, 'image/jpeg', 0.9);
+  }, 'image/jpeg', 0.95);
 }
 
 async function enviarImagem(fileOrBlob, filename) {
