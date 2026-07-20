@@ -103,7 +103,10 @@ INSERT INTO categorias (id, marca_id, nome, ordem) VALUES
 (5, 2, 'CAMISETAS', 1), (6, 2, 'POLO', 2), (7, 2, 'CAMISAS', 3), (8, 2, 'CASACOS', 4),
 (9, 3, 'CAMISETAS', 1), (10, 3, 'CAMISAS', 2), (11, 3, 'CASACOS', 3),
 (12, 4, 'CAMISETAS', 1), (13, 4, 'CAMISAS', 2), (14, 4, 'CASACOS', 3),
-(15, 5, 'CAMISETAS', 1), (16, 5, 'CAMISAS', 2), (17, 5, 'CASACOS', 3)
+(15, 5, 'CAMISETAS', 1), (16, 5, 'CAMISAS', 2), (17, 5, 'CASACOS', 3),
+-- Subcategorias com tamanhos numericos proprios (Calcas 38-48, Tenis 38-43)
+(18, 1, 'CALÇAS', 5), (19, 2, 'CALÇAS', 5), (20, 3, 'CALÇAS', 5), (21, 4, 'CALÇAS', 5), (22, 5, 'CALÇAS', 5),
+(23, 1, 'TÊNIS', 6), (24, 2, 'TÊNIS', 6), (25, 3, 'TÊNIS', 6), (26, 4, 'TÊNIS', 6), (27, 5, 'TÊNIS', 6)
 ON CONFLICT (id) DO NOTHING;
 
 -- Ativar Row Level Security: sem policies, so a service_role (usada pelo servidor) acessa.

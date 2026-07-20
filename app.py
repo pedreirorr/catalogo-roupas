@@ -112,7 +112,18 @@ def init_supabase():
         {'id': 14, 'marca_id': 4, 'nome': 'CASACOS', 'ordem': 3},
         {'id': 15, 'marca_id': 5, 'nome': 'CAMISETAS', 'ordem': 1},
         {'id': 16, 'marca_id': 5, 'nome': 'CAMISAS', 'ordem': 2},
-        {'id': 17, 'marca_id': 5, 'nome': 'CASACOS', 'ordem': 3}
+        {'id': 17, 'marca_id': 5, 'nome': 'CASACOS', 'ordem': 3},
+        # Novas subcategorias (com tamanhos numericos proprios)
+        {'id': 18, 'marca_id': 1, 'nome': 'CALÇAS', 'ordem': 5},
+        {'id': 19, 'marca_id': 2, 'nome': 'CALÇAS', 'ordem': 5},
+        {'id': 20, 'marca_id': 3, 'nome': 'CALÇAS', 'ordem': 5},
+        {'id': 21, 'marca_id': 4, 'nome': 'CALÇAS', 'ordem': 5},
+        {'id': 22, 'marca_id': 5, 'nome': 'CALÇAS', 'ordem': 5},
+        {'id': 23, 'marca_id': 1, 'nome': 'TÊNIS', 'ordem': 6},
+        {'id': 24, 'marca_id': 2, 'nome': 'TÊNIS', 'ordem': 6},
+        {'id': 25, 'marca_id': 3, 'nome': 'TÊNIS', 'ordem': 6},
+        {'id': 26, 'marca_id': 4, 'nome': 'TÊNIS', 'ordem': 6},
+        {'id': 27, 'marca_id': 5, 'nome': 'TÊNIS', 'ordem': 6}
     ]
     for cat in cats:
         try:
@@ -150,8 +161,17 @@ def gerar_ref(marca_id, categoria_id):
             maior = max(maior, int(sufixo))
     return f"{inicio}{maior + 1:02d}"
 
-# Tamanhos disponiveis no catalogo (usados nos checkboxes do admin e nos PDFs por tamanho)
+# Tamanhos padrao (roupas em geral) e tamanhos especificos por categoria.
 TAMANHOS = ['PP', 'P', 'M', 'G', 'GG', 'XGG']
+TAMANHOS_POR_CATEGORIA = {
+    'CALCAS': ['38', '40', '42', '44', '46', '48'],
+    'CALÇAS': ['38', '40', '42', '44', '46', '48'],
+    'TENIS': ['38', '39', '40', '41', '42', '43'],
+    'TÊNIS': ['38', '39', '40', '41', '42', '43'],
+}
+
+def tamanhos_da_categoria(cat_nome):
+    return TAMANHOS_POR_CATEGORIA.get((cat_nome or '').strip().upper(), TAMANHOS)
 
 def _disponivel_no_tamanho(prod, tamanho):
     """Diz se o produto deve aparecer no PDF do tamanho pedido.
@@ -166,36 +186,57 @@ def _disponivel_no_tamanho(prod, tamanho):
     if val is None:
         return True
     disponiveis = [t.strip().upper() for t in val.split(',') if t.strip()]
-    return tamanho.strip().upper() in disponiveis
+    return str(tamanho).strip().upper() in disponiveis
 
-def get_dados_completos(tamanho=None):
+def _montar_catalogo(filtro, incluir_looks=True):
+    """Monta a estrutura do catalogo (marcas -> categorias -> produtos).
+
+    filtro(prod, marca, cat) -> bool decide se o produto entra.
+    """
     if not supabase:
         return {'marcas': [], 'produtos': {}, 'looks': []}
 
-    marcas_resp = sb_table('marcas').select('*').order('ordem').execute()
-    marcas = marcas_resp.data or []
-
+    marcas = sb_table('marcas').select('*').order('ordem').execute().data or []
     produtos = {}
     for marca in marcas:
-        cats_resp = sb_table('categorias').select('*').eq('marca_id', marca['id']).order('ordem').execute()
+        cats = sb_table('categorias').select('*').eq('marca_id', marca['id']).order('ordem').execute().data or []
         categorias = {}
-        for cat in cats_resp.data or []:
-            prods_resp = sb_table('produtos').select('*').eq('marca_id', marca['id']).eq('categoria_id', cat['id']).eq('ativo', True).order('id').execute()
-            prods = [p for p in (prods_resp.data or []) if _disponivel_no_tamanho(p, tamanho)]
+        for cat in cats:
+            prods = sb_table('produtos').select('*').eq('marca_id', marca['id']).eq('categoria_id', cat['id']).eq('ativo', True).order('id').execute().data or []
+            prods = [p for p in prods if filtro(p, marca, cat)]
             if prods:
                 categorias[cat['nome']] = prods
-        # Inclui a marca sempre, mesmo sem produtos, para que os links da capa
-        # tenham sempre uma pagina de destino (PDF totalmente navegavel/clicavel)
+        # Inclui a marca sempre, para que os links da capa tenham destino.
         produtos[marca['nome']] = {'nome': marca['nome'], 'categorias': categorias}
 
-    looks_resp = sb_table('looks').select('*').execute()
     looks = []
-    for look in looks_resp.data or []:
-        pecas_resp = sb_table('look_pecas').select('*').eq('look_id', look['id']).execute()
-        look['pecas'] = pecas_resp.data or []
-        looks.append(look)
+    if incluir_looks:
+        for look in (sb_table('looks').select('*').execute().data or []):
+            look['pecas'] = sb_table('look_pecas').select('*').eq('look_id', look['id']).execute().data or []
+            looks.append(look)
 
     return {'marcas': [m['nome'] for m in marcas], 'produtos': produtos, 'looks': looks}
+
+def get_dados_completos(tamanho=None):
+    """Catalogo por um unico tamanho (ou tudo, se tamanho=None)."""
+    return _montar_catalogo(lambda p, m, c: _disponivel_no_tamanho(p, tamanho))
+
+def get_dados_combo(itens):
+    """Catalogo combinando varios filtros. Cada item: {marca_id?, categoria?, tamanho}.
+    Um produto entra se casar QUALQUER item (uniao)."""
+    def filtro(p, marca, cat):
+        for it in itens:
+            mid = it.get('marca_id')
+            catname = (it.get('categoria') or '').strip().upper()
+            if mid and marca['id'] != mid:
+                continue
+            if catname and (cat['nome'] or '').strip().upper() != catname:
+                continue
+            if not _disponivel_no_tamanho(p, it.get('tamanho')):
+                continue
+            return True
+        return False
+    return _montar_catalogo(filtro, incluir_looks=False)
 
 # ============ ROTAS ============
 
@@ -254,6 +295,9 @@ def criar_produto():
         return jsonify({'error': 'Supabase nao configurado'}), 500
     data = request.get_json()
     ref = gerar_ref(data['marca_id'], data['categoria_id'])
+    # Tamanhos padrao do produto novo dependem da categoria (roupas x calcas x tenis)
+    cat = sb_table('categorias').select('nome').eq('id', data['categoria_id']).single().execute().data
+    tamanhos_padrao = ','.join(tamanhos_da_categoria(cat['nome'] if cat else ''))
     insert_data = {
         'marca_id': data['marca_id'],
         'categoria_id': data['categoria_id'],
@@ -264,7 +308,7 @@ def criar_produto():
         'imagem': data.get('imagem', ''),
         'imagem_detalhe': data.get('imagem_detalhe', ''),
         'cores': data.get('cores', ''),
-        'tamanhos': data.get('tamanhos', ','.join(TAMANHOS)),
+        'tamanhos': data.get('tamanhos', tamanhos_padrao),
         # Nasce como rascunho: nao entra no PDF ate ser publicado no painel.
         'ativo': data.get('ativo', False)
     }
@@ -445,6 +489,52 @@ def preview_pdf(tamanho):
     tamanho = tamanho.upper()
     dados = get_dados_completos(tamanho)
     return render_template('catalogo.html', titulo='AZOZ STORE', subtitulo=f'TAMANHO {tamanho}', marcas=dados['marcas'], produtos=dados['produtos'], looks=dados['looks'], whatsapp=WHATSAPP_NUMBER)
+
+def _parse_combo_itens():
+    """Le os itens do combo da querystring (?itens=<json>)."""
+    import json
+    try:
+        itens = json.loads(request.args.get('itens', '[]'))
+    except Exception:
+        itens = []
+    # normaliza marca_id para int quando vier
+    norm = []
+    for it in itens if isinstance(itens, list) else []:
+        if not it.get('tamanho') and not it.get('categoria'):
+            continue
+        mid = it.get('marca_id')
+        try:
+            mid = int(mid) if mid not in (None, '', 'null') else None
+        except Exception:
+            mid = None
+        norm.append({'marca_id': mid, 'categoria': it.get('categoria') or None, 'tamanho': it.get('tamanho') or None})
+    return norm
+
+def _combo_subtitulo(itens, marcas_nomes):
+    partes = []
+    for it in itens:
+        p = it.get('categoria') or 'TAMANHO'
+        if it.get('tamanho'):
+            p = f"{p} {it['tamanho']}"
+        partes.append(p)
+    txt = ' + '.join(partes) if partes else 'COMBO'
+    return txt.upper()[:70]
+
+@app.route('/pdf-combo')
+def gerar_pdf_combo():
+    itens = _parse_combo_itens()
+    dados = get_dados_combo(itens)
+    subt = _combo_subtitulo(itens, dados['marcas'])
+    html = render_template('catalogo.html', titulo='AZOZ STORE', subtitulo=subt, marcas=dados['marcas'], produtos=dados['produtos'], looks=dados['looks'], whatsapp=WHATSAPP_NUMBER)
+    pdf_bytes = HTML(string=html, base_url=request.host_url).write_pdf()
+    return send_file(BytesIO(pdf_bytes), as_attachment=True, download_name='catalogo_combo.pdf', mimetype='application/pdf')
+
+@app.route('/preview-combo')
+def preview_pdf_combo():
+    itens = _parse_combo_itens()
+    dados = get_dados_combo(itens)
+    subt = _combo_subtitulo(itens, dados['marcas'])
+    return render_template('catalogo.html', titulo='AZOZ STORE', subtitulo=subt, marcas=dados['marcas'], produtos=dados['produtos'], looks=dados['looks'], whatsapp=WHATSAPP_NUMBER)
 
 # ============ KEEP-ALIVE (anti-sleep do Render Free) ============
 

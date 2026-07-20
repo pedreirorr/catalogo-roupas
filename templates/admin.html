@@ -91,6 +91,11 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; background:#f5f5
 .modal-select { width:100%; padding:11px 12px; border:1px solid #ddd; font-size:16px; font-family:inherit; background:#fff; }
 .modal-select:focus { outline:none; border-color:#1a1a1a; }
 .btn-remove-foto { display:inline-block; margin-top:6px; background:none; border:none; color:#c0392b; font-size:12px; cursor:pointer; padding:4px 0; text-decoration:underline; }
+.sec-titulo { font-size:15px; font-weight:700; letter-spacing:1px; text-transform:uppercase; margin-bottom:6px; }
+.sec-desc { font-size:12px; color:#777; margin-bottom:12px; }
+.combo-row { display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap; align-items:center; background:#fff; border:1px solid #ddd; padding:10px; }
+.combo-row select { flex:1; min-width:130px; padding:9px; border:1px solid #ddd; font-size:14px; background:#fff; }
+.combo-row .btn-danger { flex:0 0 auto; padding:8px 12px; }
 
 /* Busca de produtos */
 .busca { width:100%; padding:12px 14px; font-size:15px; border:1px solid #ddd; margin-bottom:14px; font-family:inherit; }
@@ -126,6 +131,7 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; background:#f5f5
 <div class="tabs">
   <button class="tab active" data-tab="produtos">Produtos</button>
   <button class="tab" data-tab="looks">Looks</button>
+  <button class="tab" data-tab="combo">Combo PDF</button>
 </div>
 
 <div class="container">
@@ -143,6 +149,24 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; background:#f5f5
 
   <div id="tab-looks" class="section">
     <div id="looksContainer"></div>
+  </div>
+
+  <div id="tab-combo" class="section">
+    <h2 class="sec-titulo">Combo personalizado</h2>
+    <p class="sec-desc">Monte um PDF juntando varias combinacoes. Ex.: Camisetas M + Calcas 42, ou Camisetas Lacoste G + Calcas Levi's 44. Deixe a marca em "Todas" para pegar de todas.</p>
+    <div id="comboItens"></div>
+    <button class="add-btn" onclick="addComboItem()">+ Adicionar combinacao</button>
+    <div class="pdf-actions" style="margin-top:12px;">
+      <a href="#" onclick="gerarCombo('pdf');return false;">⬇ Baixar PDF do combo</a>
+      <a href="#" style="background:#666;" onclick="gerarCombo('preview');return false;">Preview</a>
+    </div>
+
+    <h2 class="sec-titulo" style="margin-top:30px;">Por tamanho — completo (todas as marcas)</h2>
+    <p class="sec-desc">Roupas (camisetas, polo, camisas, casacos): use os botoes na aba Produtos.</p>
+    <p class="sec-desc" style="margin-top:8px;"><b>Calcas</b></p>
+    <div class="pdf-actions" id="pdfCalcas"></div>
+    <p class="sec-desc" style="margin-top:10px;"><b>Tenis</b></p>
+    <div class="pdf-actions" id="pdfTenis"></div>
   </div>
 </div>
 
@@ -182,6 +206,17 @@ function esc(s) { const d = document.createElement('div'); d.textContent = s ?? 
 
 const TAMANHOS = ['PP', 'P', 'M', 'G', 'GG', 'XGG'];
 const TAMANHOS_PADRAO = TAMANHOS.join(',');
+// Tamanhos por categoria (numericos para Calcas/Tenis)
+const CATEGORIAS_TAMANHOS = {
+  'CALÇAS': ['38', '40', '42', '44', '46', '48'],
+  'CALCAS': ['38', '40', '42', '44', '46', '48'],
+  'TÊNIS': ['38', '39', '40', '41', '42', '43'],
+  'TENIS': ['38', '39', '40', '41', '42', '43'],
+};
+const CATEGORIAS_COMBO = ['CAMISETAS', 'POLO', 'CAMISAS', 'CASACOS', 'CALÇAS', 'TÊNIS'];
+function tamanhosDaCategoria(nome) {
+  return CATEGORIAS_TAMANHOS[(nome || '').trim().toUpperCase()] || TAMANHOS;
+}
 
 let marcas = [], categorias = [], produtos = [], looks = [];
 let marcaAtual = null, categoriaAtual = null;
@@ -192,6 +227,8 @@ async function init() {
   await carregarMarcas();
   if (marcas.length) { marcaAtual = marcas[0]; await carregarCategorias(marcas[0].id); }
   await carregarContagem();
+  renderCombo();
+  carregarPdfPorTamanho();
   await carregarLooks();
 }
 
@@ -320,9 +357,10 @@ function renderProdutos() {
 function renderCard(p) {
   const img = p.imagem ? `<img src="${p.imagem}" onerror="this.style.display='none'">` : '';
   const hasDetail = p.imagem_detalhe;
-  const tamanhosProduto = (p.tamanhos != null ? p.tamanhos : TAMANHOS_PADRAO)
+  const tamsCat = tamanhosDaCategoria(categoriaAtual?.nome);
+  const tamanhosProduto = (p.tamanhos != null ? p.tamanhos : tamsCat.join(','))
     .split(',').map(s => s.trim().toUpperCase());
-  const checkboxes = TAMANHOS.map(t =>
+  const checkboxes = tamsCat.map(t =>
     `<label class="size-chk"><input type="checkbox" value="${t}" ${tamanhosProduto.includes(t)?'checked':''}> ${t}</label>`
   ).join('');
   const detailThumb = hasDetail
@@ -693,6 +731,52 @@ async function salvarTudo() {
   showToast(`${cards.length} produto(s) salvos!`);
 }
 function showToast(msg) { const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2500); }
+
+// ---- Combo PDF ----
+let comboRows = [];
+
+function addComboItem() { comboRows.push({ categoria: '', tamanho: '', marca_id: '' }); renderCombo(); }
+function removeComboItem(i) { comboRows.splice(i, 1); renderCombo(); }
+function setCombo(i, campo, val) {
+  comboRows[i][campo] = val;
+  if (campo === 'categoria') comboRows[i].tamanho = ''; // reseta tamanho ao trocar categoria
+  renderCombo();
+}
+
+function renderCombo() {
+  const el = document.getElementById('comboItens');
+  if (!el) return;
+  if (!comboRows.length) { el.innerHTML = '<div class="empty">Nenhuma combinacao. Clique em "+ Adicionar combinacao".</div>'; return; }
+  el.innerHTML = comboRows.map((row, i) => {
+    const cats = CATEGORIAS_COMBO.map(c => `<option value="${c}" ${row.categoria === c ? 'selected' : ''}>${c}</option>`).join('');
+    const tamsList = row.categoria ? tamanhosDaCategoria(row.categoria) : TAMANHOS;
+    const tams = tamsList.map(t => `<option value="${t}" ${row.tamanho === t ? 'selected' : ''}>${t}</option>`).join('');
+    const mcs = marcas.map(m => `<option value="${m.id}" ${String(row.marca_id) === String(m.id) ? 'selected' : ''}>${esc(m.nome)}</option>`).join('');
+    return `<div class="combo-row">
+      <select onchange="setCombo(${i},'categoria',this.value)"><option value="">Todas categorias</option>${cats}</select>
+      <select onchange="setCombo(${i},'tamanho',this.value)"><option value="">Tamanho...</option>${tams}</select>
+      <select onchange="setCombo(${i},'marca_id',this.value)"><option value="">Todas as marcas</option>${mcs}</select>
+      <button class="btn-danger" onclick="removeComboItem(${i})">X</button>
+    </div>`;
+  }).join('');
+}
+
+function gerarCombo(modo) {
+  const itens = comboRows.filter(r => r.tamanho).map(r => ({ marca_id: r.marca_id || null, categoria: r.categoria || null, tamanho: r.tamanho }));
+  if (!itens.length) { showToast('Adicione ao menos uma combinacao com tamanho'); return; }
+  const rota = modo === 'preview' ? '/preview-combo' : '/pdf-combo';
+  window.open(rota + '?itens=' + encodeURIComponent(JSON.stringify(itens)), '_blank');
+  showToast('Gerando combo... aguarde o download');
+}
+
+// Botoes "completo por tamanho" para Calcas e Tenis (link de combo com 1 item)
+function carregarPdfPorTamanho() {
+  const linkCompleto = (categoria, t) => '/pdf-combo?itens=' + encodeURIComponent(JSON.stringify([{ marca_id: null, categoria, tamanho: t }]));
+  const cal = document.getElementById('pdfCalcas');
+  const ten = document.getElementById('pdfTenis');
+  if (cal) cal.innerHTML = tamanhosDaCategoria('CALÇAS').map(t => `<a href="${linkCompleto('CALÇAS', t)}" target="_blank" onclick="showToast('Gerando Calcas ${t}...')">Calcas ${t}</a>`).join('');
+  if (ten) ten.innerHTML = tamanhosDaCategoria('TÊNIS').map(t => `<a href="${linkCompleto('TÊNIS', t)}" target="_blank" onclick="showToast('Gerando Tenis ${t}...')">Tenis ${t}</a>`).join('');
+}
 
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', async () => {
