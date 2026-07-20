@@ -348,6 +348,35 @@ def api_contagem():
                 contagem[t] += 1
     return jsonify(contagem)
 
+@app.route('/api/storage')
+@requer_senha
+def api_storage():
+    """Uso do Storage: soma o tamanho das fotos no bucket vs o limite free (1 GB)."""
+    limite = 1024 * 1024 * 1024  # 1 GB (plano free do Supabase)
+    resultado = {'usado_bytes': 0, 'limite_bytes': limite, 'arquivos': 0, 'ok': False}
+    if not supabase:
+        return jsonify(resultado)
+    try:
+        total = 0
+        arquivos = 0
+        offset = 0
+        page = 100
+        while True:
+            itens = supabase.storage.from_(BUCKET_NAME).list('', {'limit': page, 'offset': offset}) or []
+            for it in itens:
+                meta = (it.get('metadata') if isinstance(it, dict) else None) or {}
+                tam = meta.get('size')
+                if tam is not None:
+                    total += int(tam)
+                    arquivos += 1
+            if len(itens) < page:
+                break
+            offset += page
+        resultado.update({'usado_bytes': total, 'arquivos': arquivos, 'ok': True})
+    except Exception as e:
+        resultado['erro'] = str(e)
+    return jsonify(resultado)
+
 @app.route('/api/resumo')
 @requer_senha
 def api_resumo():
