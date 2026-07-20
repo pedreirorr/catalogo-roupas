@@ -315,6 +315,33 @@ def criar_produto():
     resp = sb_table('produtos').insert(insert_data).execute()
     return jsonify({'success': True, 'produto': resp.data[0] if resp.data else insert_data})
 
+def _nome_arquivo_do_url(url):
+    """Extrai o nome do arquivo no bucket a partir da URL publica do Supabase."""
+    if not url or not isinstance(url, str):
+        return None
+    url = url.split('?', 1)[0]  # tira querystring
+    marcador = f'/{BUCKET_NAME}/'
+    if marcador in url:
+        nome = url.split(marcador, 1)[1].strip('/')
+        return nome or None
+    return None
+
+def _apagar_arquivos_storage(urls):
+    """Apaga do bucket os arquivos das URLs informadas (libera espaco). Tolerante a erro."""
+    if not supabase:
+        return
+    nomes = []
+    for u in urls:
+        n = _nome_arquivo_do_url(u)
+        if n:
+            nomes.append(n)
+    if not nomes:
+        return
+    try:
+        supabase.storage.from_(BUCKET_NAME).remove(nomes)
+    except Exception as e:
+        print(f"Aviso ao apagar do storage: {e}")
+
 @app.route('/api/produto/<int:prod_id>', methods=['PUT'])
 @requer_senha
 def atualizar_produto(prod_id):
@@ -322,7 +349,17 @@ def atualizar_produto(prod_id):
         return jsonify({'error': 'Supabase nao configurado'}), 500
     data = request.get_json()
     update_data = {k: v for k, v in data.items() if k in ['nome', 'descricao', 'preco', 'imagem', 'imagem_detalhe', 'cores', 'tamanhos', 'ativo']}
+    # Se uma foto esta sendo trocada ou removida, apaga o arquivo antigo do bucket.
+    campos_foto = [c for c in ('imagem', 'imagem_detalhe') if c in update_data]
+    antigos = []
+    if campos_foto:
+        atual = sb_table('produtos').select('imagem,imagem_detalhe').eq('id', prod_id).single().execute().data or {}
+        for c in campos_foto:
+            old = atual.get(c)
+            if old and old != update_data.get(c):
+                antigos.append(old)
     resp = sb_table('produtos').update(update_data).eq('id', prod_id).execute()
+    _apagar_arquivos_storage(antigos)
     return jsonify({'success': True, 'produto': resp.data[0] if resp.data else update_data})
 
 @app.route('/api/produto/<int:prod_id>', methods=['DELETE'])
@@ -331,7 +368,9 @@ def deletar_produto(prod_id):
     if not supabase:
         return jsonify({'error': 'Supabase nao configurado'}), 500
     # Remocao definitiva. (ativo=False agora significa "rascunho", nao "removido".)
+    prod = sb_table('produtos').select('imagem,imagem_detalhe').eq('id', prod_id).single().execute().data or {}
     sb_table('produtos').delete().eq('id', prod_id).execute()
+    _apagar_arquivos_storage([prod.get('imagem'), prod.get('imagem_detalhe')])
     return jsonify({'success': True})
 
 @app.route('/api/contagem')
@@ -440,9 +479,11 @@ def atualizar_look(look_id):
 def deletar_look(look_id):
     if not supabase:
         return jsonify({'error': 'Supabase nao configurado'}), 500
-    # Remove as pecas primeiro (FK) e depois o look
+    # Remove as pecas primeiro (FK) e depois o look, apagando as fotos do bucket
+    pecas = sb_table('look_pecas').select('imagem').eq('look_id', look_id).execute().data or []
     sb_table('look_pecas').delete().eq('look_id', look_id).execute()
     sb_table('looks').delete().eq('id', look_id).execute()
+    _apagar_arquivos_storage([p.get('imagem') for p in pecas])
     return jsonify({'success': True})
 
 @app.route('/api/look/<int:look_id>/peca', methods=['POST'])
@@ -470,7 +511,14 @@ def atualizar_peca(peca_id):
         return jsonify({'error': 'Supabase nao configurado'}), 500
     data = request.get_json() or {}
     update_data = {k: v for k, v in data.items() if k in ['ref', 'marca', 'nome', 'descricao', 'preco', 'imagem']}
+    antigo = None
+    if 'imagem' in update_data:
+        atual = sb_table('look_pecas').select('imagem').eq('id', peca_id).single().execute().data or {}
+        old = atual.get('imagem')
+        if old and old != update_data.get('imagem'):
+            antigo = old
     sb_table('look_pecas').update(update_data).eq('id', peca_id).execute()
+    _apagar_arquivos_storage([antigo])
     return jsonify({'success': True})
 
 @app.route('/api/peca/<int:peca_id>', methods=['DELETE'])
@@ -478,7 +526,9 @@ def atualizar_peca(peca_id):
 def deletar_peca(peca_id):
     if not supabase:
         return jsonify({'error': 'Supabase nao configurado'}), 500
+    peca = sb_table('look_pecas').select('imagem').eq('id', peca_id).single().execute().data or {}
     sb_table('look_pecas').delete().eq('id', peca_id).execute()
+    _apagar_arquivos_storage([peca.get('imagem')])
     return jsonify({'success': True})
 
 @app.route('/api/upload', methods=['POST'])
