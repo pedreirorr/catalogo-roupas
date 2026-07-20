@@ -90,6 +90,7 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; background:#f5f5
 .modal-label { font-size:11px; color:#999; letter-spacing:1px; text-transform:uppercase; display:block; margin-bottom:4px; }
 .modal-select { width:100%; padding:11px 12px; border:1px solid #ddd; font-size:16px; font-family:inherit; background:#fff; }
 .modal-select:focus { outline:none; border-color:#1a1a1a; }
+.btn-remove-foto { display:inline-block; margin-top:6px; background:none; border:none; color:#c0392b; font-size:12px; cursor:pointer; padding:4px 0; text-decoration:underline; }
 
 /* Busca de produtos */
 .busca { width:100%; padding:12px 14px; font-size:15px; border:1px solid #ddd; margin-bottom:14px; font-family:inherit; }
@@ -336,6 +337,7 @@ function renderCard(p) {
       <div class="card-header">
         <span class="ref">REF: ${p.ref}${rascunho ? '<span class="badge-rascunho">RASCUNHO</span>' : ''}</span>
         <div class="actions">
+          <button class="btn-success" onclick="salvarProduto(${p.id})">Salvar</button>
           ${botaoPublicar}
           <button class="btn-secondary-sm" onclick="duplicarProduto(${p.id})">Duplicar</button>
           <button class="btn-danger" onclick="removerProduto(${p.id})">X</button>
@@ -344,8 +346,8 @@ function renderCard(p) {
       <div class="save-status" data-status="${p.id}"></div>
       <div class="card-body">
         <div class="img-preview">${img}${detailThumb}</div>
-        <div class="field"><label>Foto (cortada para o layout)</label><input type="file" accept="image/*" onchange="abrirCrop(this,${p.id},'imagem',250/340)"></div>
-        <div class="field"><label>Detalhe</label><input type="file" accept="image/*" onchange="abrirCrop(this,${p.id},'imagem_detalhe',1)"></div>
+        <div class="field"><label>Foto (cortada para o layout)</label><input type="file" accept="image/*" onchange="abrirCrop(this,${p.id},'imagem',250/340)">${p.imagem ? `<button type="button" class="btn-remove-foto" onclick="removerFoto(${p.id},'imagem')">✕ tirar foto</button>` : ''}</div>
+        <div class="field"><label>Detalhe</label><input type="file" accept="image/*" onchange="abrirCrop(this,${p.id},'imagem_detalhe',1)">${p.imagem_detalhe ? `<button type="button" class="btn-remove-foto" onclick="removerFoto(${p.id},'imagem_detalhe')">✕ tirar detalhe</button>` : ''}</div>
         <div class="field"><label>Nome</label><input type="text" class="f-nome" value="${esc(p.nome)}"></div>
         <div class="field"><label>Descricao</label><textarea class="f-desc" placeholder="Descreva o produto (tecido, caimento, detalhes...)">${esc(p.descricao)}</textarea></div>
         <div class="field"><label>Preco (R$)</label><input type="number" inputmode="decimal" step="0.01" class="f-preco price-input" value="${p.preco||0}"></div>
@@ -416,6 +418,14 @@ function abrirCrop(input, id, campo, aspect) {
     await carregarProdutos();
     showToast('Imagem salva!');
   });
+}
+
+// Remover foto (principal ou detalhe) de um produto
+async function removerFoto(id, campo) {
+  if (!confirm('Remover esta foto?')) return;
+  await fetch(`/api/produto/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [campo]: '' }) });
+  await carregarProdutos();
+  showToast(campo === 'imagem_detalhe' ? 'Foto de detalhe removida' : 'Foto removida');
 }
 
 // Foto de peca de look
