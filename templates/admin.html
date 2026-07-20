@@ -118,6 +118,16 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; background:#f5f5
   .product-card .field input, .product-card .field textarea { padding:11px 12px; font-size:16px; }
   .pdf-actions a { padding:12px 16px; }
 }
+
+/* Indicador de uso do Storage */
+.storage-box { background:#fff; border:1px solid #ddd; padding:12px 14px; margin-bottom:16px; }
+.storage-top { display:flex; justify-content:space-between; font-size:12px; margin-bottom:8px; flex-wrap:wrap; gap:6px; }
+.storage-top b { font-weight:700; }
+.storage-bar { height:10px; background:#eee; border-radius:5px; overflow:hidden; }
+.storage-fill { height:100%; background:#27ae60; width:0%; transition:width .3s; }
+.storage-fill.alerta { background:#e67e22; }
+.storage-fill.cheio { background:#c0392b; }
+.storage-hint { font-size:11px; color:#999; margin-top:6px; }
 </style>
 </head>
 <body>
@@ -136,6 +146,11 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; background:#f5f5
 
 <div class="container">
   <div id="tab-produtos" class="section active">
+    <div class="storage-box" id="storageBox" style="display:none;">
+      <div class="storage-top"><span>Armazenamento de fotos (Supabase)</span><span id="storageTexto">—</span></div>
+      <div class="storage-bar"><div class="storage-fill" id="storageFill"></div></div>
+      <div class="storage-hint" id="storageHint"></div>
+    </div>
     <div class="pdf-actions" id="pdfActions"></div>
     <div class="pdf-hint">Os numeros mostram quantos produtos publicados entram em cada PDF. Rascunhos nao aparecem.</div>
     <input id="buscaInput" class="busca" placeholder="🔎 Buscar produto por nome ou REF (todas as marcas)" oninput="onBusca()">
@@ -227,6 +242,7 @@ async function init() {
   await carregarMarcas();
   if (marcas.length) { marcaAtual = marcas[0]; await carregarCategorias(marcas[0].id); }
   await carregarContagem();
+  carregarStorage();
   renderCombo();
   carregarPdfPorTamanho();
   await carregarLooks();
@@ -260,6 +276,29 @@ async function carregarProdutos() {
   produtos = await r.json();
   produtos.sort((a, b) => b.id - a.id); // mais recentes primeiro no painel
   renderProdutos();
+}
+
+function formatarMB(bytes) {
+  const mb = bytes / (1024 * 1024);
+  if (mb >= 1024) return (mb / 1024).toFixed(2) + ' GB';
+  return mb.toFixed(1) + ' MB';
+}
+
+async function carregarStorage() {
+  let d;
+  try { d = await (await fetch('/api/storage')).json(); } catch (e) { return; }
+  if (!d || !d.ok) return;
+  const box = document.getElementById('storageBox');
+  const pct = d.limite_bytes ? Math.min(100, (d.usado_bytes / d.limite_bytes) * 100) : 0;
+  document.getElementById('storageTexto').innerHTML =
+    `<b>${formatarMB(d.usado_bytes)}</b> de ${formatarMB(d.limite_bytes)} (${pct.toFixed(1)}%)`;
+  const fill = document.getElementById('storageFill');
+  fill.style.width = pct + '%';
+  fill.className = 'storage-fill' + (pct >= 90 ? ' cheio' : pct >= 70 ? ' alerta' : '');
+  const restante = Math.max(0, d.limite_bytes - d.usado_bytes);
+  document.getElementById('storageHint').textContent =
+    `${d.arquivos} foto(s) · restam ~${formatarMB(restante)}. Conta so o bucket de imagens; numeros exatos no painel do Supabase.`;
+  box.style.display = '';
 }
 
 async function carregarContagem() {
@@ -454,6 +493,7 @@ function abrirCrop(input, id, campo, aspect) {
   abrirCropCb(input, aspect, async (url) => {
     await fetch(`/api/produto/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [campo]: url }) });
     await carregarProdutos();
+    carregarStorage();
     showToast('Imagem salva!');
   });
 }
@@ -463,6 +503,7 @@ async function removerFoto(id, campo) {
   if (!confirm('Remover esta foto?')) return;
   await fetch(`/api/produto/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [campo]: '' }) });
   await carregarProdutos();
+  carregarStorage();
   showToast(campo === 'imagem_detalhe' ? 'Foto de detalhe removida' : 'Foto removida');
 }
 
