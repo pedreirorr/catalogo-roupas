@@ -87,6 +87,9 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; background:#f5f5
 .btn-secondary-sm { padding:4px 10px; font-size:10px; border:1px solid #bbb; background:#fff; color:#555; cursor:pointer; }
 .save-status { font-size:10px; letter-spacing:1px; color:#27ae60; padding:6px 14px 0; min-height:16px; text-transform:uppercase; }
 .pdf-hint { font-size:11px; color:#999; margin:-8px 0 16px; }
+.modal-label { font-size:11px; color:#999; letter-spacing:1px; text-transform:uppercase; display:block; margin-bottom:4px; }
+.modal-select { width:100%; padding:11px 12px; border:1px solid #ddd; font-size:16px; font-family:inherit; background:#fff; }
+.modal-select:focus { outline:none; border-color:#1a1a1a; }
 
 /* Busca de produtos */
 .busca { width:100%; padding:12px 14px; font-size:15px; border:1px solid #ddd; margin-bottom:14px; font-family:inherit; }
@@ -152,6 +155,23 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; background:#f5f5
     <div class="crop-actions">
       <button class="btn btn-secondary" style="color:#1a1a1a;border-color:#1a1a1a;" onclick="fecharCrop()">Cancelar</button>
       <button class="btn btn-success" onclick="confirmarCrop()">Cortar e enviar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: escolher marca e categoria ao adicionar produto -->
+<div class="crop-modal" id="addModal">
+  <div class="crop-box">
+    <div class="crop-title">Novo produto — escolha onde criar</div>
+    <div style="padding:16px;">
+      <label class="modal-label">Marca</label>
+      <select id="addMarca" class="modal-select" onchange="addModalMarcaChange()"></select>
+      <label class="modal-label" style="margin-top:12px;">Categoria</label>
+      <select id="addCategoria" class="modal-select"></select>
+    </div>
+    <div class="crop-actions">
+      <button class="btn btn-secondary" style="color:#1a1a1a;border-color:#1a1a1a;" onclick="fecharAddProduto()">Cancelar</button>
+      <button class="btn btn-success" onclick="confirmarAddProduto()">Criar produto</button>
     </div>
   </div>
 </div>
@@ -277,7 +297,7 @@ function renderProdutos() {
   const container = document.getElementById('produtosContainer');
   if (!marcaAtual || !categoriaAtual) { container.innerHTML = '<div class="empty">Selecione marca e categoria</div>'; return; }
 
-  let html = `<button class="add-btn" onclick="adicionarProduto()">+ Adicionar Produto</button>`;
+  let html = `<button class="add-btn" onclick="abrirAddProduto()">+ Adicionar Produto</button>`;
   if (!produtos.length) { html += '<div class="empty">Nenhum produto</div>'; }
   else {
     html += '<div class="product-grid">';
@@ -457,14 +477,43 @@ async function definirAtivo(id, ativo) {
   showToast(ativo ? 'Produto publicado! Ja entra no PDF.' : 'Voltou para rascunho (fora do PDF)');
 }
 
-async function adicionarProduto() {
-  if(!marcaAtual || !categoriaAtual) return;
+// ---- Adicionar produto: escolher marca e categoria antes de criar ----
+async function abrirAddProduto() {
+  const selM = document.getElementById('addMarca');
+  selM.innerHTML = marcas.map(m => `<option value="${m.id}">${esc(m.nome)}</option>`).join('');
+  if (marcaAtual) selM.value = marcaAtual.id; // pre-seleciona a marca atual (mas da para trocar)
+  await addModalMarcaChange();
+  if (categoriaAtual) document.getElementById('addCategoria').value = categoriaAtual.id;
+  document.getElementById('addModal').classList.add('show');
+}
+
+async function addModalMarcaChange() {
+  const mid = document.getElementById('addMarca').value;
+  let cats = [];
+  try { cats = await (await fetch(`/api/categorias/${mid}`)).json(); } catch (e) {}
+  document.getElementById('addCategoria').innerHTML =
+    cats.map(c => `<option value="${c.id}">${esc(c.nome)}</option>`).join('');
+}
+
+function fecharAddProduto() { document.getElementById('addModal').classList.remove('show'); }
+
+async function confirmarAddProduto() {
+  const mid = parseInt(document.getElementById('addMarca').value, 10);
+  const cid = parseInt(document.getElementById('addCategoria').value, 10);
+  if (!mid || !cid) { showToast('Escolha marca e categoria'); return; }
+  fecharAddProduto();
   const r = await fetch('/api/produto', {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({marca_id:marcaAtual.id, categoria_id:categoriaAtual.id, nome:'Novo Produto'})
+    body:JSON.stringify({marca_id: mid, categoria_id: cid, nome:'Novo Produto'})
   });
   const d = await r.json();
-  if(d.success) { await carregarProdutos(); atualizarResumo(); showToast('Rascunho criado: '+d.produto.ref+'. Preencha e clique Publicar.'); }
+  if (d.success) {
+    await irPara(mid, cid); // navega ate a marca/categoria escolhida e mostra o rascunho
+    atualizarResumo();
+    showToast('Rascunho criado: '+d.produto.ref+'. Preencha e clique Publicar.');
+  } else {
+    showToast(d.error || 'Erro ao criar produto');
+  }
 }
 
 async function duplicarProduto(id) {
