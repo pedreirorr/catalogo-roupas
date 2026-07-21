@@ -577,7 +577,34 @@ async function removerProduto(){
 }
 
 /* ---------- Fotos (Cropper) ---------- */
-let cropper=null, cropCallback=null, fotoCampo=null;
+let cropper=null, cropCallback=null, fotoCampo=null, cropOrigBytes=0;
+
+/* Compressao no navegador: reduz para <=1200px e re-encoda em WebP (ou JPEG) */
+function suportaWebp(){ try{ return document.createElement('canvas').toDataURL('image/webp').indexOf('data:image/webp')===0; }catch(e){ return false; } }
+async function comprimirCanvas(source, larguraMax=1200, qualidade=0.82){
+  let canvas=source;
+  if(source.width>larguraMax){
+    const c=document.createElement('canvas');
+    c.width=larguraMax; c.height=Math.round(source.height*(larguraMax/source.width));
+    const ctx=c.getContext('2d'); ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+    ctx.drawImage(source,0,0,c.width,c.height);
+    canvas=c;
+  }
+  const webp=suportaWebp();
+  const tipo=webp?'image/webp':'image/jpeg', ext=webp?'webp':'jpg';
+  const blob=await new Promise(res=>canvas.toBlob(res,tipo,qualidade));
+  return {blob, ext};
+}
+function carregarImagem(file){ return new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=URL.createObjectURL(file); }); }
+async function comprimirArquivo(file){
+  const img=await carregarImagem(file);
+  const c=document.createElement('canvas'); c.width=img.naturalWidth||img.width; c.height=img.naturalHeight||img.height;
+  c.getContext('2d').drawImage(img,0,0);
+  return comprimirCanvas(c,1200,0.82);
+}
+function fmtBytes(b){ return b>=1048576 ? (b/1048576).toFixed(1)+' MB' : Math.max(1,Math.round(b/1024))+' KB'; }
+function toastGanho(antes, depois){ showToast(antes>0 ? `Foto enviada — ${fmtBytes(antes)} → ${fmtBytes(depois)}` : 'Foto enviada — '+fmtBytes(depois)); }
+
 function escolherFoto(campo, aspect){
   if(editingId==null) return;
   fotoCampo=campo;
@@ -588,13 +615,16 @@ function escolherFoto(campo, aspect){
     if(editingProduto) editingProduto[campo]=url;
     abrirEditar(editingId); // re-renderiza o painel com a nova foto
     renderGrid(); carregarStorage();
-    showToast('Imagem salva');
   });
   inp.click();
 }
 function abrirCropCb(input, aspect, cb){
   const file=input.files[0]; if(!file) return;
-  if(typeof Cropper==='undefined'){ enviarImagem(file, file.name||'foto.jpg').then(u=>{ if(u) cb(u); }); return; }
+  cropOrigBytes=file.size||0;
+  if(typeof Cropper==='undefined'){ // sem CDN: comprime mesmo sem corte
+    comprimirArquivo(file).then(async ({blob,ext})=>{ const u=await enviarImagem(blob,'foto.'+ext); if(u){ await cb(u); toastGanho(cropOrigBytes, blob.size); } });
+    return;
+  }
   cropCallback=cb;
   const reader=new FileReader();
   reader.onload=e=>{
@@ -608,9 +638,13 @@ function abrirCropCb(input, aspect, cb){
 function fecharCrop(){ if(cropper){cropper.destroy();cropper=null;} document.getElementById('cropModal').classList.remove('show'); }
 function confirmarCrop(){
   if(!cropper) return;
-  const canvas=cropper.getCroppedCanvas({maxWidth:1500,maxHeight:1500,imageSmoothingEnabled:true,imageSmoothingQuality:'high'});
-  const cb=cropCallback;
-  canvas.toBlob(async blob=>{ fecharCrop(); const url=await enviarImagem(blob,'crop.jpg'); if(url&&cb) cb(url); }, 'image/jpeg', 0.95);
+  const canvas=cropper.getCroppedCanvas({maxWidth:2400,maxHeight:2400,imageSmoothingEnabled:true,imageSmoothingQuality:'high'});
+  const cb=cropCallback, antes=cropOrigBytes;
+  fecharCrop();
+  comprimirCanvas(canvas,1200,0.82).then(async ({blob,ext})=>{
+    const url=await enviarImagem(blob,'crop.'+ext);
+    if(url){ if(cb) await cb(url); toastGanho(antes, blob.size); }
+  });
 }
 async function enviarImagem(fileOrBlob, filename){
   const fd=new FormData(); fd.append('imagem', fileOrBlob, filename||'foto.jpg');
