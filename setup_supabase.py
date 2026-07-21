@@ -45,8 +45,15 @@ CREATE TABLE IF NOT EXISTS categorias (
     id INTEGER PRIMARY KEY,
     marca_id INTEGER NOT NULL REFERENCES marcas(id),
     nome TEXT NOT NULL,
-    ordem INTEGER DEFAULT 0
+    ordem INTEGER DEFAULT 0,
+    tamanhos_padrao TEXT DEFAULT 'PP,P,M,G,GG,XGG'
 );
+-- Migracao: coluna de tamanhos padrao por categoria (Entrega 4)
+ALTER TABLE categorias ADD COLUMN IF NOT EXISTS tamanhos_padrao TEXT DEFAULT 'PP,P,M,G,GG,XGG';
+UPDATE categorias SET tamanhos_padrao='38,40,42,44,46,48' WHERE nome='CALÇAS' AND (tamanhos_padrao IS NULL OR tamanhos_padrao='PP,P,M,G,GG,XGG');
+UPDATE categorias SET tamanhos_padrao='38,39,40,41,42,43' WHERE nome='TÊNIS' AND (tamanhos_padrao IS NULL OR tamanhos_padrao='PP,P,M,G,GG,XGG');
+-- Observacao: os IDs de marcas/categorias sao gerados pelo app (maior+1),
+-- entao o app cria marcas/categorias novas sem depender de sequence no banco.
 
 -- Tabela de produtos
 CREATE TABLE IF NOT EXISTS produtos (

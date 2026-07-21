@@ -212,6 +212,7 @@ main{padding-top:22px;padding-bottom:90px;}
       <button class="tab active" data-view="produtos">Produtos</button>
       <button class="tab" data-view="looks">Looks</button>
       <button class="tab" data-view="combo">Combo PDF</button>
+      <button class="tab" data-view="ajustes">Ajustes</button>
       <div class="tab-indicator" id="tabIndicator"></div>
     </div>
   </div>
@@ -261,6 +262,12 @@ main{padding-top:22px;padding-bottom:90px;}
     <div class="pdfbar" id="pdfCalcas"></div>
     <div class="sec-desc" style="margin-top:10px;"><b>Tenis</b></div>
     <div class="pdfbar" id="pdfTenis"></div>
+  </section>
+
+  <section class="view" id="view-ajustes">
+    <div class="sec-title" style="margin-top:0;">Marcas e categorias</div>
+    <div class="sec-desc">Clique numa marca para editar nome, prefixo da REF, ordem e as categorias (com seus tamanhos). O prefixo vale só para produtos novos.</div>
+    <div id="ajustesArea"></div>
   </section>
 </main>
 
@@ -318,6 +325,7 @@ let marcas=[], categorias=[], produtos=[], looks=[];
 let marcaAtual=null, categoriaAtual=null;
 let resumo={marcas:{},categorias:{}};
 let editingId=null, editingProduto=null, buscando=false, resultadosBusca=[];
+let editMarcaId=null;
 
 async function init(){
   bindTabs();
@@ -340,6 +348,7 @@ function bindTabs(){
     t.classList.add('active');
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
     document.getElementById('view-'+t.dataset.view).classList.add('active');
+    if(t.dataset.view==='ajustes') renderAjustes();
     renderTabIndicator();
   }));
 }
@@ -468,19 +477,19 @@ function abrirNovo(){
   document.getElementById('panelFoot').innerHTML=`<button class="btn" style="flex:1" onclick="criarProduto()">Criar produto (rascunho)</button>`;
   abrirPainel();
 }
+let novoCats=[];
 async function novoTrocaMarca(){
   const mid=val('n-marca');
-  let cats=[];
-  try{ cats=await (await fetch('/api/categorias/'+mid)).json(); }catch(e){}
+  try{ novoCats=await (await fetch('/api/categorias/'+mid)).json(); }catch(e){ novoCats=[]; }
   const sel=document.getElementById('n-cat');
-  sel.innerHTML=cats.map(c=>`<option value="${c.id}" data-nome="${esc(c.nome)}">${esc(c.nome)}</option>`).join('');
+  sel.innerHTML=novoCats.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join('');
   novoTrocaCategoria();
   sel.onchange=novoTrocaCategoria;
 }
 function novoTrocaCategoria(){
-  const sel=document.getElementById('n-cat');
-  const nome=sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].dataset.nome : '';
-  renderSizes(nome, []);
+  const cid=parseInt(val('n-cat'),10);
+  const catObj=novoCats.find(c=>c.id===cid);
+  renderSizes(tamsDeCategoria(catObj, catObj&&catObj.nome), []);
 }
 
 function abrirEditar(id){
@@ -548,8 +557,12 @@ function formHtml(p, isNew, catNome){
     <div class="field"><label>Tamanhos disponíveis</label><div class="sizes" id="f-sizes"></div></div>
     ${statusBloco}`;
 }
-function renderSizes(catNome, selecionados){
-  const tams=tamanhosDaCategoria(catNome);
+function tamsDeCategoria(catObj, catNome){
+  const tp = catObj && catObj.tamanhos_padrao;
+  if(tp) return tp.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean);
+  return tamanhosDaCategoria(catNome || (catObj && catObj.nome) || '');
+}
+function renderSizes(tams, selecionados){
   const sel=(selecionados||[]).map(s=>s.trim().toUpperCase());
   const el=document.getElementById('f-sizes');
   if(el) el.innerHTML=tams.map(t=>`<span class="size-chk ${sel.includes(t)?'on':''}" data-size="${t}" onclick="this.classList.toggle('on');agendarSalvar();">${t}</span>`).join('');
@@ -559,8 +572,9 @@ function renderSizes(catNome, selecionados){
 function ligarAutosave(){
   const p=editingProduto;
   const catNome=p.categoria_nome || (categoriaAtual&&categoriaAtual.nome) || '';
-  const tamProd = (p.tamanhos!=null ? p.tamanhos : tamanhosDaCategoria(catNome).join(',')).split(',');
-  renderSizes(catNome, tamProd);
+  const tams=tamsDeCategoria(categoriaAtual, catNome);
+  const tamProd = (p.tamanhos!=null ? p.tamanhos : tams.join(',')).split(',');
+  renderSizes(tams, tamProd);
   ['f-nome','f-preco','f-desc','f-cores'].forEach(id=>{
     const e=document.getElementById(id); if(e) e.addEventListener('input', agendarSalvar);
   });
@@ -883,6 +897,106 @@ async function addPecaProduto(lookId,btn){ const sel=btn.parentElement.querySele
 async function addPecaManual(lookId){ const r=await fetch('/api/look/'+lookId+'/peca',{method:'POST',headers:JSONH,body:JSON.stringify({nome:'Nova peca'})}); if((await r.json()).success){ await carregarLooks(); showToast('Peca adicionada'); } }
 async function salvarPeca(id){ const card=document.querySelector(`[data-peca="${id}"]`); const body={ref:card.querySelector('.p-ref').value,marca:card.querySelector('.p-marca').value,nome:card.querySelector('.p-nome').value,preco:parseFloat(card.querySelector('.p-preco').value)||0}; await fetch('/api/peca/'+id,{method:'PUT',headers:JSONH,body:JSON.stringify(body)}); showToast('Peca salva'); }
 async function removerPeca(id){ if(!confirm('Remover esta peca?'))return; await fetch('/api/peca/'+id,{method:'DELETE'}); await carregarLooks(); carregarStorage(); showToast('Peca removida'); }
+
+/* ---------- Ajustes: marcas e categorias ---------- */
+async function recarregarMarcasResumo(){ await carregarResumo(); await carregarMarcas(); }
+function renderAjustes(){
+  const el=document.getElementById('ajustesArea'); if(!el) return;
+  el.innerHTML=`<button class="btn ghost btn-sm" style="margin-bottom:18px" onclick="abrirNovaMarca()">+ Nova marca</button>
+    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr));">${
+      marcas.map(m=>`<button class="card" style="padding:16px;text-align:left;" onclick="abrirEditarMarca(${m.id})">
+        <span class="nome" style="min-height:auto;margin:0;display:block;">${esc(m.nome)}</span>
+        <span class="ref" style="display:block;margin-top:6px;">Prefixo ${esc(m.prefixo||'—')} · ${resumo.marcas[m.id]||0} produto(s)</span>
+      </button>`).join('') || '<div class="empty" style="border:1.5px dashed var(--line);">Nenhuma marca. Clique em "+ Nova marca".</div>'
+    }</div>`;
+}
+function marcaFormHtml(m, cats){
+  const isNew=!m.id;
+  const catsHtml = cats.map(c=>`
+    <div class="cat-edit" data-cat="${c.id}" style="border:1px solid var(--line);padding:10px;margin-bottom:8px;background:#fbfaf7;">
+      <div class="field-2" style="gap:8px;">
+        <div class="field" style="margin-bottom:8px;"><label>Categoria</label><input class="c-nome" value="${esc(c.nome)}"></div>
+        <div class="field" style="margin-bottom:8px;"><label>Ordem</label><input class="c-ordem" type="number" value="${c.ordem||0}"></div>
+      </div>
+      <div class="field" style="margin-bottom:8px;"><label>Tamanhos padrão (vírgula)</label><input class="c-tam" value="${esc(c.tamanhos_padrao||'')}"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <span class="sec-desc" style="margin:0;">${resumo.categorias[c.id]||0} produto(s)</span>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-sm" onclick="salvarCategoria(${c.id})">Salvar</button>
+          <button class="btn ghost btn-sm" style="border-color:var(--danger);color:var(--danger)" onclick="removerCategoria(${c.id})">X</button>
+        </div>
+      </div>
+    </div>`).join('');
+  return `
+    <div class="field"><label>Nome da marca</label><input id="m-nome" value="${esc(m.nome)}"></div>
+    <div class="field-2">
+      <div class="field"><label>Prefixo da REF</label><input id="m-prefixo" value="${esc(m.prefixo||'')}" maxlength="2"></div>
+      <div class="field"><label>Ordem</label><input id="m-ordem" type="number" value="${m.ordem||0}"></div>
+    </div>
+    <div class="sec-desc">O prefixo entra nas REFs dos <b>novos</b> produtos. Produtos já criados mantêm a REF antiga.</div>
+    ${isNew ? '<div class="sec-desc">Salve a marca para poder adicionar categorias.</div>' :
+      `<div class="sec-title" style="margin-top:20px;">Categorias</div>${catsHtml || '<div class="sec-desc">Nenhuma categoria ainda.</div>'}
+       <button class="btn ghost btn-sm" onclick="adicionarCategoria(${m.id})">+ Adicionar categoria</button>`}`;
+}
+function abrirNovaMarca(){
+  editMarcaId=null; editingId=null; editingProduto=null;
+  document.getElementById('panelTitle').textContent='Nova marca';
+  setPanelStatus('');
+  document.getElementById('panelBody').innerHTML=marcaFormHtml({nome:'',prefixo:'',ordem:99}, []);
+  document.getElementById('panelFoot').innerHTML=`<button class="btn" style="flex:1" onclick="salvarMarcaNova()">Criar marca</button>`;
+  abrirPainel();
+}
+async function abrirEditarMarca(id){
+  editMarcaId=id; editingId=null; editingProduto=null;
+  const m=marcas.find(x=>x.id===id) || {id};
+  let cats=[]; try{ cats=await (await fetch('/api/categorias/'+id)).json(); }catch(e){}
+  document.getElementById('panelTitle').textContent='Editar marca';
+  setPanelStatus('');
+  document.getElementById('panelBody').innerHTML=marcaFormHtml(m, cats);
+  document.getElementById('panelFoot').innerHTML=`
+    <button class="btn ghost btn-sm" style="border-color:var(--danger);color:var(--danger)" onclick="removerMarca(${id})">Remover marca</button>
+    <button class="btn" style="flex:1" onclick="salvarMarca(${id})">Salvar marca</button>`;
+  abrirPainel();
+}
+async function salvarMarcaNova(){
+  const nome=val('m-nome').trim(); if(!nome){ showToast('Informe o nome da marca'); return; }
+  const r=await fetch('/api/marca',{method:'POST',headers:JSONH,body:JSON.stringify({nome, prefixo:val('m-prefixo'), ordem:parseInt(val('m-ordem'))||99})});
+  const d=await r.json().catch(()=>({})); if(!r.ok){ showToast(d.error||'Erro ao criar marca'); return; }
+  await recarregarMarcasResumo(); renderAjustes(); renderPills();
+  abrirEditarMarca(d.marca.id); showToast('Marca criada');
+}
+async function salvarMarca(id){
+  const nome=val('m-nome').trim(); if(!nome){ showToast('Informe o nome da marca'); return; }
+  const r=await fetch('/api/marca/'+id,{method:'PUT',headers:JSONH,body:JSON.stringify({nome, prefixo:val('m-prefixo'), ordem:parseInt(val('m-ordem'))||0})});
+  const d=await r.json().catch(()=>({})); if(!r.ok){ showToast(d.error||'Erro ao salvar'); return; }
+  await recarregarMarcasResumo(); renderAjustes(); renderPills(); showToast('Marca salva');
+}
+async function removerMarca(id){
+  if(!confirm('Remover esta marca?')) return;
+  const r=await fetch('/api/marca/'+id,{method:'DELETE'});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok){ showToast(d.error||'Nao foi possivel remover'); return; }
+  await recarregarMarcasResumo(); await fecharPainel(); renderAjustes(); renderPills(); showToast('Marca removida');
+}
+async function adicionarCategoria(marcaId){
+  const r=await fetch('/api/categoria',{method:'POST',headers:JSONH,body:JSON.stringify({marca_id:marcaId, nome:'NOVA CATEGORIA'})});
+  const d=await r.json().catch(()=>({})); if(!r.ok){ showToast(d.error||'Erro'); return; }
+  await recarregarMarcasResumo(); abrirEditarMarca(marcaId); showToast('Categoria adicionada');
+}
+async function salvarCategoria(id){
+  const box=document.querySelector(`.cat-edit[data-cat="${id}"]`); if(!box) return;
+  const body={nome:box.querySelector('.c-nome').value, ordem:parseInt(box.querySelector('.c-ordem').value)||0, tamanhos_padrao:box.querySelector('.c-tam').value};
+  const r=await fetch('/api/categoria/'+id,{method:'PUT',headers:JSONH,body:JSON.stringify(body)});
+  const d=await r.json().catch(()=>({})); if(!r.ok){ showToast(d.error||'Erro'); return; }
+  await carregarResumo(); showToast('Categoria salva');
+}
+async function removerCategoria(id){
+  if(!confirm('Remover esta categoria?')) return;
+  const r=await fetch('/api/categoria/'+id,{method:'DELETE'});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok){ showToast(d.error||'Nao foi possivel remover'); return; }
+  await recarregarMarcasResumo(); if(editMarcaId) abrirEditarMarca(editMarcaId); showToast('Categoria removida');
+}
 
 /* ---------- Toast + saida ---------- */
 let toastTimer;

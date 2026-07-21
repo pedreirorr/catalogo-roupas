@@ -297,6 +297,110 @@ def api_categorias(marca_id):
     resp = sb_table('categorias').select('*').eq('marca_id', marca_id).order('ordem').execute()
     return jsonify(resp.data or [])
 
+# ============ MARCAS E CATEGORIAS (editaveis) ============
+
+def _proximo_id(tabela):
+    rows = sb_table(tabela).select('id').execute().data or []
+    return (max(r['id'] for r in rows) + 1) if rows else 1
+
+@app.route('/api/marca', methods=['POST'])
+@requer_senha
+def criar_marca():
+    if not supabase:
+        return jsonify({'error': 'Supabase nao configurado'}), 500
+    data = request.get_json() or {}
+    nome = (data.get('nome') or '').strip()
+    if not nome:
+        return jsonify({'error': 'Informe o nome da marca.'}), 400
+    if sb_table('marcas').select('id').eq('nome', nome).execute().data:
+        return jsonify({'error': 'Ja existe uma marca com esse nome.'}), 409
+    novo = {'id': _proximo_id('marcas'), 'nome': nome,
+            'prefixo': (data.get('prefixo') or nome[:1]).upper()[:2], 'ordem': data.get('ordem', 99)}
+    try:
+        resp = sb_table('marcas').insert(novo).execute()
+    except Exception:
+        return jsonify({'error': 'Nao foi possivel criar a marca (nome duplicado?).'}), 409
+    return jsonify({'success': True, 'marca': resp.data[0] if resp.data else novo})
+
+@app.route('/api/marca/<int:marca_id>', methods=['PUT'])
+@requer_senha
+def atualizar_marca(marca_id):
+    if not supabase:
+        return jsonify({'error': 'Supabase nao configurado'}), 500
+    data = request.get_json() or {}
+    update = {}
+    if 'nome' in data:
+        nome = (data.get('nome') or '').strip()
+        if not nome:
+            return jsonify({'error': 'Informe o nome da marca.'}), 400
+        dup = sb_table('marcas').select('id').eq('nome', nome).execute().data or []
+        if any(m['id'] != marca_id for m in dup):
+            return jsonify({'error': 'Ja existe uma marca com esse nome.'}), 409
+        update['nome'] = nome
+    if 'prefixo' in data:
+        update['prefixo'] = (data.get('prefixo') or '').upper()[:2]
+    if 'ordem' in data:
+        update['ordem'] = data['ordem']
+    try:
+        sb_table('marcas').update(update).eq('id', marca_id).execute()
+    except Exception:
+        return jsonify({'error': 'Nao foi possivel salvar (nome duplicado?).'}), 409
+    return jsonify({'success': True})
+
+@app.route('/api/marca/<int:marca_id>', methods=['DELETE'])
+@requer_senha
+def deletar_marca(marca_id):
+    if not supabase:
+        return jsonify({'error': 'Supabase nao configurado'}), 500
+    n_prod = sb_table('produtos').select('*', count='exact').eq('marca_id', marca_id).execute().count or 0
+    n_cat = sb_table('categorias').select('*', count='exact').eq('marca_id', marca_id).execute().count or 0
+    if n_prod > 0 or n_cat > 0:
+        return jsonify({'error': f'Esta marca tem {n_cat} categoria(s) e {n_prod} produto(s). Mova ou exclua antes.'}), 409
+    sb_table('marcas').delete().eq('id', marca_id).execute()
+    return jsonify({'success': True})
+
+@app.route('/api/categoria', methods=['POST'])
+@requer_senha
+def criar_categoria():
+    if not supabase:
+        return jsonify({'error': 'Supabase nao configurado'}), 500
+    data = request.get_json() or {}
+    if not data.get('marca_id'):
+        return jsonify({'error': 'Marca obrigatoria.'}), 400
+    nome = (data.get('nome') or '').strip()
+    if not nome:
+        return jsonify({'error': 'Informe o nome da categoria.'}), 400
+    novo = {'id': _proximo_id('categorias'), 'marca_id': data['marca_id'], 'nome': nome,
+            'ordem': data.get('ordem', 99),
+            'tamanhos_padrao': data.get('tamanhos_padrao') or ','.join(tamanhos_da_categoria(nome))}
+    resp = sb_table('categorias').insert(novo).execute()
+    return jsonify({'success': True, 'categoria': resp.data[0] if resp.data else novo})
+
+@app.route('/api/categoria/<int:cat_id>', methods=['PUT'])
+@requer_senha
+def atualizar_categoria(cat_id):
+    if not supabase:
+        return jsonify({'error': 'Supabase nao configurado'}), 500
+    data = request.get_json() or {}
+    update = {k: v for k, v in data.items() if k in ('nome', 'ordem', 'tamanhos_padrao')}
+    if 'nome' in update:
+        update['nome'] = (update['nome'] or '').strip()
+        if not update['nome']:
+            return jsonify({'error': 'Informe o nome da categoria.'}), 400
+    sb_table('categorias').update(update).eq('id', cat_id).execute()
+    return jsonify({'success': True})
+
+@app.route('/api/categoria/<int:cat_id>', methods=['DELETE'])
+@requer_senha
+def deletar_categoria(cat_id):
+    if not supabase:
+        return jsonify({'error': 'Supabase nao configurado'}), 500
+    n_prod = sb_table('produtos').select('*', count='exact').eq('categoria_id', cat_id).execute().count or 0
+    if n_prod > 0:
+        return jsonify({'error': f'Esta categoria tem {n_prod} produto(s). Mova ou exclua antes.'}), 409
+    sb_table('categorias').delete().eq('id', cat_id).execute()
+    return jsonify({'success': True})
+
 @app.route('/api/produtos/<int:marca_id>/<int:categoria_id>')
 @requer_senha
 def api_produtos(marca_id, categoria_id):
@@ -317,9 +421,10 @@ def criar_produto():
         return jsonify({'error': 'Supabase nao configurado'}), 500
     data = request.get_json()
     ref = gerar_ref(data['marca_id'], data['categoria_id'])
-    # Tamanhos padrao do produto novo dependem da categoria (roupas x calcas x tenis)
-    cat = sb_table('categorias').select('nome').eq('id', data['categoria_id']).single().execute().data
-    tamanhos_padrao = ','.join(tamanhos_da_categoria(cat['nome'] if cat else ''))
+    # Tamanhos padrao do produto novo vem da categoria (coluna tamanhos_padrao),
+    # com fallback para o mapa fixo por nome (dados antigos).
+    cat = sb_table('categorias').select('*').eq('id', data['categoria_id']).single().execute().data or {}
+    tamanhos_padrao = cat.get('tamanhos_padrao') or ','.join(tamanhos_da_categoria(cat.get('nome', '')))
     insert_data = {
         'marca_id': data['marca_id'],
         'categoria_id': data['categoria_id'],
