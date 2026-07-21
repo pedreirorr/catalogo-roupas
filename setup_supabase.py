@@ -62,12 +62,18 @@ CREATE TABLE IF NOT EXISTS produtos (
     cores TEXT DEFAULT '',
     tamanhos TEXT DEFAULT 'PP,P,M,G,GG,XGG',
     ativo BOOLEAN DEFAULT TRUE,
+    promo_ativa BOOLEAN DEFAULT FALSE,
+    promo_modo TEXT DEFAULT 'pct',
+    promo_valor REAL DEFAULT 0,
     ordem INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Migracao: garante a coluna 'tamanhos' em bancos que ja tinham a tabela produtos
+-- Migracao: garante colunas em bancos que ja tinham a tabela produtos
 ALTER TABLE produtos ADD COLUMN IF NOT EXISTS tamanhos TEXT DEFAULT 'PP,P,M,G,GG,XGG';
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS promo_ativa BOOLEAN DEFAULT FALSE;
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS promo_modo TEXT DEFAULT 'pct';
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS promo_valor REAL DEFAULT 0;
 
 -- Tabela de looks
 CREATE TABLE IF NOT EXISTS looks (

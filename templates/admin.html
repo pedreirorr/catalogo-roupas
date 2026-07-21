@@ -142,6 +142,29 @@ main{padding-top:22px;padding-bottom:90px;}
 .switch.is-live .knob{left:50%;background:var(--live);}
 .switch.is-draft .knob{left:0;background:var(--draft);}
 
+/* Promoção — card */
+.preco.promo{color:var(--promo);}
+.preco-antigo{font-size:11px;color:var(--muted);text-decoration:line-through;}
+.card .promo-flag{position:absolute;top:10px;left:0;background:var(--promo);color:#fff;font-size:9px;font-weight:700;letter-spacing:1px;padding:3px 8px;z-index:2;}
+/* Promoção — painel */
+.promo-box{border:1px solid var(--line);background:#fbfaf7;padding:14px;margin-bottom:16px;}
+.promo-head{display:flex;justify-content:space-between;align-items:center;gap:10px;}
+.promo-head .promo-title{font-size:10px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);}
+.toggle{width:40px;height:22px;border:1px solid var(--line-strong);background:#fff;position:relative;cursor:pointer;transition:background-color .2s,border-color .2s;flex:0 0 auto;}
+.toggle .dot{position:absolute;top:2px;left:2px;width:16px;height:16px;background:var(--line-strong);transition:left .2s ease,background-color .2s;}
+.toggle.on{background:var(--promo);border-color:var(--promo);}
+.toggle.on .dot{left:20px;background:#fff;}
+.promo-fields{max-height:0;overflow:hidden;opacity:0;transition:max-height .25s ease,opacity .2s ease,margin-top .25s ease;}
+.promo-fields.show{max-height:300px;opacity:1;margin-top:14px;}
+.modeswitch{display:flex;border:1px solid var(--line-strong);margin-bottom:12px;}
+.modeswitch button{flex:1;padding:8px;font-size:11px;font-weight:700;letter-spacing:1px;border:none;background:#fff;cursor:pointer;color:var(--muted);transition:.15s;}
+.modeswitch button.on{background:var(--ink);color:#fff;}
+.promo-preview{background:#fff;border:1px solid var(--line);padding:11px 13px;font-size:13px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;}
+.promo-preview .de{color:var(--muted);text-decoration:line-through;font-size:12px;}
+.promo-preview .por{font-weight:700;color:var(--promo);font-size:16px;}
+.promo-preview .off{background:var(--promo-bg);color:var(--promo);font-size:10px;font-weight:700;letter-spacing:.6px;padding:2px 7px;}
+.promo-preview .aviso{color:var(--muted);font-size:12px;}
+
 /* Combo */
 .combo-row{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center;background:var(--card);border:1px solid var(--line);padding:10px;}
 .combo-row select{flex:1;min-width:130px;padding:9px;border:1px solid var(--line-strong);font-size:13px;background:#fff;}
@@ -212,7 +235,10 @@ main{padding-top:22px;padding-bottom:90px;}
         <div class="pillrow" id="catPills"></div>
       </div>
     </div>
-    <div class="resultbar"><div class="resultcount" id="resultCount"></div></div>
+    <div class="resultbar">
+      <div class="resultcount" id="resultCount"></div>
+      <div class="pillrow" id="statusPills"></div>
+    </div>
     <div class="grid" id="grid"></div>
   </section>
 
@@ -275,6 +301,18 @@ function tamanhosDaCategoria(nome){ return CATEGORIAS_TAMANHOS[(nome||'').trim()
 function esc(s){ const d=document.createElement('div'); d.textContent=s??''; return d.innerHTML; }
 function brl(v){ return 'R$ ' + (Number(v)||0).toFixed(2).replace('.',','); }
 function val(id){ const e=document.getElementById(id); return e?e.value:''; }
+/* Promoção (espelha calcular_promo do backend) */
+function calcPromo(preco, modo, valor){
+  const v=parseFloat(valor)||0, p=parseFloat(preco)||0;
+  if(v<=0||p<=0) return null;
+  let final, pct;
+  if(modo==='reais'){ if(v>=p) return null; final=p-v; pct=(v/p)*100; }
+  else { pct=Math.min(v,99); final=p*(1-pct/100); }
+  return {final:Math.round(final*100)/100, pct};
+}
+function promoDoProduto(p){ return p.promo_ativa ? calcPromo(p.preco, p.promo_modo, p.promo_valor) : null; }
+let promoDraft={ativa:false,modo:'pct',valor:0,base:0};
+let filtroStatus='todos';
 
 let marcas=[], categorias=[], produtos=[], looks=[];
 let marcaAtual=null, categoriaAtual=null;
@@ -288,6 +326,7 @@ async function init(){
   if(marcas.length){ marcaAtual=marcas[0]; await carregarCategorias(marcas[0].id); }
   await carregarContagem();
   carregarStorage();
+  renderStatusPills();
   renderCombo(); carregarPdfPorTamanho();
   await carregarLooks();
   renderTabIndicator();
@@ -348,8 +387,19 @@ async function selecionarCategoria(id){
 }
 
 /* ---------- Grade ---------- */
+function renderStatusPills(){
+  const el=document.getElementById('statusPills'); if(!el) return;
+  const opc=[['todos','Todos'],['publicados','Publicados'],['rascunhos','Rascunhos'],['promo','Em promoção']];
+  el.innerHTML=opc.map(([k,label])=>`<button class="pill small ${filtroStatus===k?'active':''}" onclick="setFiltroStatus('${k}')">${label}</button>`).join('');
+}
+function setFiltroStatus(k){ filtroStatus=k; renderStatusPills(); renderGrid(); }
 function renderGrid(){
-  const lista = buscando ? resultadosBusca : produtos;
+  let lista = buscando ? resultadosBusca : produtos;
+  if(!buscando){
+    if(filtroStatus==='publicados') lista=lista.filter(p=>p.ativo);
+    else if(filtroStatus==='rascunhos') lista=lista.filter(p=>!p.ativo);
+    else if(filtroStatus==='promo') lista=lista.filter(p=>promoDoProduto(p));
+  }
   const rc=document.getElementById('resultCount');
   const pub=lista.filter(p=>p.ativo).length;
   rc.innerHTML = buscando
@@ -363,12 +413,17 @@ function cardHtml(p){
   const thumb = p.imagem
     ? `<img src="${esc(p.imagem)}" alt="" onerror="this.style.display='none'">`
     : `<span class="mono">${esc((p.nome||'?')[0])}</span>`;
+  const pr = promoDoProduto(p);
+  const priceline = pr
+    ? `<span class="preco promo">${brl(pr.final)}</span><span class="preco-antigo">${brl(p.preco)}</span>`
+    : `<span class="preco">${brl(p.preco)}</span>`;
+  const flag = pr ? `<span class="promo-flag">-${Math.round(pr.pct)}%</span>` : '';
   return `<button class="card ${p.ativo?'':'is-draft'}" onclick="abrirEditar(${p.id})">
-    <span class="thumb"><span class="status-dot"></span>${thumb}</span>
+    <span class="thumb"><span class="status-dot"></span>${flag}${thumb}</span>
     <span class="info" style="display:block">
       <span class="ref" style="display:block">REF ${esc(p.ref)}</span>
       <span class="nome" style="display:block">${esc(p.nome)}</span>
-      <span class="priceline"><span class="preco">${brl(p.preco)}</span></span>
+      <span class="priceline">${priceline}</span>
       ${p.ativo?'':'<span class="draft-tag">Rascunho</span>'}
     </span>
   </button>`;
@@ -399,6 +454,7 @@ function setPanelStatus(txt,cor){ const e=document.getElementById('panelStatus')
 
 function abrirNovo(){
   editingId=null; editingProduto=null;
+  promoDraft={ativa:false,modo:'pct',valor:0,base:0};
   document.getElementById('panelTitle').textContent='Novo produto';
   const opcM=marcas.map(m=>`<option value="${m.id}" ${marcaAtual&&m.id===marcaAtual.id?'selected':''}>${esc(m.nome)}</option>`).join('');
   document.getElementById('panelBody').innerHTML=`
@@ -408,6 +464,7 @@ function abrirNovo(){
     </div>
     ${formHtml({nome:'',preco:0,descricao:'',cores:'',tamanhos:null,categoria_nome:(categoriaAtual&&categoriaAtual.nome)||''}, true)}`;
   novoTrocaMarca();
+  atualizarPromoPreview();
   document.getElementById('panelFoot').innerHTML=`<button class="btn" style="flex:1" onclick="criarProduto()">Criar produto (rascunho)</button>`;
   abrirPainel();
 }
@@ -431,6 +488,7 @@ function abrirEditar(id){
   const p=lista.find(x=>x.id===id);
   if(!p) return;
   editingId=id; editingProduto=p;
+  promoDraft={ativa:!!p.promo_ativa, modo:p.promo_modo||'pct', valor:p.promo_valor||0, base:parseFloat(p.preco)||0};
   document.getElementById('panelTitle').textContent='Editar produto';
   const catNome=p.categoria_nome || (categoriaAtual&&categoriaAtual.nome) || '';
   document.getElementById('panelBody').innerHTML=formHtml(p, false, catNome);
@@ -466,7 +524,24 @@ function formHtml(p, isNew, catNome){
     ${fotos}
     <div class="field-row">
       <div class="field"><label>Nome</label><input id="f-nome" value="${esc(p.nome)}"></div>
-      <div class="field"><label>Preço (R$)</label><input id="f-preco" type="number" inputmode="decimal" step="0.01" value="${p.preco||0}"></div>
+      <div class="field"><label>Preço (R$)</label><input id="f-preco" type="number" inputmode="decimal" step="0.01" value="${p.preco||0}" oninput="onPrecoInput()"></div>
+    </div>
+    <div class="promo-box">
+      <div class="promo-head">
+        <span class="promo-title">Promoção</span>
+        <button class="toggle ${promoDraft.ativa?'on':''}" id="promoToggle" onclick="togglePromo()" aria-label="Ativar promoção"><span class="dot"></span></button>
+      </div>
+      <div class="promo-fields ${promoDraft.ativa?'show':''}" id="promoFields">
+        <div class="modeswitch">
+          <button id="modePct" class="${promoDraft.modo==='pct'?'on':''}" onclick="setPromoModo('pct')">Desconto em %</button>
+          <button id="modeReais" class="${promoDraft.modo==='reais'?'on':''}" onclick="setPromoModo('reais')">Desconto em R$</button>
+        </div>
+        <div class="field" style="margin-bottom:12px;">
+          <label id="promoValorLabel">${promoDraft.modo==='pct'?'Percentual de desconto':'Valor do desconto (R$)'}</label>
+          <input id="f-promo-valor" type="number" inputmode="decimal" step="0.01" min="0" value="${promoDraft.valor||''}" oninput="onPromoInput()">
+        </div>
+        <div class="promo-preview" id="promoPreview"></div>
+      </div>
     </div>
     <div class="field"><label>Descrição</label><textarea id="f-desc" placeholder="Tecido, caimento, detalhes...">${esc(p.descricao)}</textarea></div>
     <div class="field"><label>Cores</label><input id="f-cores" value="${esc((p.cores||'').replace(/,/g,', '))}"></div>
@@ -489,6 +564,33 @@ function ligarAutosave(){
   ['f-nome','f-preco','f-desc','f-cores'].forEach(id=>{
     const e=document.getElementById(id); if(e) e.addEventListener('input', agendarSalvar);
   });
+  atualizarPromoPreview();
+}
+
+/* ---------- Promoção (painel) ---------- */
+function togglePromo(){
+  promoDraft.ativa=!promoDraft.ativa;
+  document.getElementById('promoToggle').classList.toggle('on',promoDraft.ativa);
+  document.getElementById('promoFields').classList.toggle('show',promoDraft.ativa);
+  atualizarPromoPreview(); agendarSalvar();
+}
+function setPromoModo(m){
+  promoDraft.modo=m;
+  document.getElementById('modePct').classList.toggle('on',m==='pct');
+  document.getElementById('modeReais').classList.toggle('on',m==='reais');
+  document.getElementById('promoValorLabel').textContent = m==='pct'?'Percentual de desconto':'Valor do desconto (R$)';
+  atualizarPromoPreview(); agendarSalvar();
+}
+function onPromoInput(){ promoDraft.valor=parseFloat(val('f-promo-valor'))||0; atualizarPromoPreview(); agendarSalvar(); }
+function onPrecoInput(){ promoDraft.base=parseFloat(val('f-preco'))||0; atualizarPromoPreview(); }
+function promoInvalida(){ return promoDraft.ativa && promoDraft.modo==='reais' && promoDraft.valor>0 && promoDraft.valor>=promoDraft.base; }
+function atualizarPromoPreview(){
+  const el=document.getElementById('promoPreview'); if(!el) return;
+  if(!promoDraft.ativa){ el.innerHTML='<span class="aviso">Promoção desligada — o catálogo mostra só o preço cheio.</span>'; return; }
+  if(promoInvalida()){ el.innerHTML='<span class="aviso" style="color:var(--danger)">O desconto é maior ou igual ao preço. Ajuste o valor.</span>'; return; }
+  const r=calcPromo(promoDraft.base, promoDraft.modo, promoDraft.valor);
+  if(!r){ el.innerHTML='<span class="aviso">Informe o desconto para ver como fica no catálogo.</span>'; return; }
+  el.innerHTML=`<span>De</span><span class="de">${brl(promoDraft.base)}</span><span>por</span><span class="por">${brl(r.final)}</span><span class="off">${Math.round(r.pct)}% OFF</span>`;
 }
 
 /* ---------- Autosave ---------- */
@@ -509,15 +611,20 @@ function lerForm(){
     preco: parseFloat(val('f-preco'))||0,
     descricao: val('f-desc'),
     cores: val('f-cores'),
-    tamanhos
+    tamanhos,
+    promo_ativa: !!(promoDraft.ativa && promoDraft.valor>0),
+    promo_modo: promoDraft.modo,
+    promo_valor: promoDraft.valor||0
   };
 }
 async function salvarPainel(silencioso){
   if(editingId==null) return;
+  if(promoInvalida()){ setPanelStatus('Corrija a promoção','var(--danger)'); if(!silencioso) showToast('O desconto não pode ser maior que o preço'); return; }
   const body=lerForm();
   setPanelStatus('Salvando…','var(--muted)');
   try{
-    await fetch('/api/produto/'+editingId, {method:'PUT', headers:JSONH, body:JSON.stringify(body)});
+    const r=await fetch('/api/produto/'+editingId, {method:'PUT', headers:JSONH, body:JSON.stringify(body)});
+    if(!r.ok){ const e=await r.json().catch(()=>({})); setPanelStatus(e.error||'Erro ao salvar','var(--danger)'); if(!silencioso) showToast(e.error||'Erro ao salvar'); return; }
     if(editingProduto) Object.assign(editingProduto, body);
     setPanelStatus('Salvo ✓','var(--live)');
     renderGrid();
@@ -530,9 +637,11 @@ async function criarProduto(){
   const sel=document.getElementById('n-cat');
   const cid=parseInt(sel.value,10);
   if(!mid||!cid){ showToast('Escolha marca e categoria'); return; }
+  if(promoInvalida()){ showToast('O desconto não pode ser maior que o preço'); return; }
   const body=lerForm();
   const r=await fetch('/api/produto',{method:'POST',headers:JSONH,body:JSON.stringify({marca_id:mid,categoria_id:cid,...body})});
   const d=await r.json();
+  if(!r.ok){ showToast(d.error||'Erro ao criar'); return; }
   if(d.success){
     showToast('Rascunho criado: '+d.produto.ref);
     // navega para onde criou e reabre em modo edicao
