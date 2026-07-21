@@ -30,7 +30,11 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; color:#1a1a1a; b
 .products-page .section-subtitle { font-size:11px; color:#999; letter-spacing:3px; text-transform:uppercase; text-align:center; margin-bottom:22px; }
 .product-item { display:flex; gap:24px; margin-bottom:26px; page-break-inside:avoid; height:420px; }
 .product-item:last-child { margin-bottom:0; }
-.product-image { width:250px; height:100%; flex-shrink:0; }
+.product-image { width:250px; height:100%; flex-shrink:0; position:relative; }
+.product-image .promo-flag { position:absolute; top:0; left:0; background:#a5342a; color:#fff; font-size:12px; font-weight:700; letter-spacing:1px; padding:4px 11px; z-index:2; }
+.preco-de { font-size:13px; color:#999; text-decoration:line-through; margin-bottom:2px; }
+.product-price.promo { color:#a5342a; }
+.promo-off { font-size:12px; font-weight:700; color:#a5342a; background:#faeae8; padding:2px 8px; margin-left:8px; letter-spacing:1px; }
 .product-image .ph { background:#e8e8e8; border:1px solid #e0e0e0; overflow:hidden; }
 .product-image .ph img { width:100%; height:100%; object-fit:cover; display:block; }
 .product-image .ph.main { height:100%; }
@@ -115,8 +119,10 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; color:#1a1a1a; b
         <div class="section-title">{{ marca.nome }}</div>
         <div class="section-subtitle">{{ cat_nome }}</div>
         {% for prod in par %}
+          {% set promo = calcular_promo(prod.preco, prod.promo_modo, prod.promo_valor) if prod.promo_ativa else None %}
           <div class="product-item">
             <div class="product-image {% if prod.imagem_detalhe %}with-detail{% endif %}">
+              {% if promo %}<div class="promo-flag">-{{ promo[1]|round|int }}%</div>{% endif %}
               <div class="ph main">
                 {% if prod.imagem %}
                   <img src="{{ prod.imagem }}" alt="{{ prod.nome }}" onerror="this.style.display='none'">
@@ -132,8 +138,13 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; color:#1a1a1a; b
               <div class="product-ref">REF: {{ prod.ref }}</div>
               <div class="product-name">{{ prod.nome }}</div>
               <div class="product-desc">{{ prod.descricao }}</div>
-              <div class="product-price">R$ {{ format_preco(prod.preco) }}</div>
-              <a href="{{ whatsapp_link(prod.ref) }}" class="buy-btn" target="_blank">COMPRAR OPÇÃO {{ loop.index }}</a>
+              {% if promo %}
+                <div class="preco-de">De R$ {{ format_preco(prod.preco) }}</div>
+                <div class="product-price promo">R$ {{ format_preco(promo[0]) }}<span class="promo-off">{{ promo[1]|round|int }}% OFF</span></div>
+              {% else %}
+                <div class="product-price">R$ {{ format_preco(prod.preco) }}</div>
+              {% endif %}
+              <a href="https://wa.me/{{ whatsapp }}?text={{ (('Tenho interesse na Ref.: ' ~ prod.ref) ~ (' (promo R$ ' ~ format_preco(promo[0]) ~ ')' if promo else ''))|trim|urlencode }}" class="buy-btn" target="_blank">COMPRAR OPÇÃO {{ loop.index }}</a>
             </div>
           </div>
         {% endfor %}

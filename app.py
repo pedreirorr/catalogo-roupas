@@ -173,6 +173,28 @@ TAMANHOS_POR_CATEGORIA = {
 def tamanhos_da_categoria(cat_nome):
     return TAMANHOS_POR_CATEGORIA.get((cat_nome or '').strip().upper(), TAMANHOS)
 
+def calcular_promo(preco, modo, valor):
+    """Retorna (preco_final, percentual_desconto) ou None se nao ha promocao valida."""
+    try:
+        valor = float(valor or 0)
+        preco = float(preco or 0)
+    except (TypeError, ValueError):
+        return None
+    if valor <= 0 or preco <= 0:
+        return None
+    if modo == 'reais':
+        if valor >= preco:
+            return None  # desconto invalido: nao aplica
+        final = preco - valor
+        pct = (valor / preco) * 100
+    else:  # 'pct'
+        pct = min(valor, 99)
+        final = preco * (1 - pct / 100)
+    return (round(final, 2), pct)
+
+# Disponibiliza o calculo de promocao para o template do PDF
+app.jinja_env.globals['calcular_promo'] = calcular_promo
+
 def _disponivel_no_tamanho(prod, tamanho):
     """Diz se o produto deve aparecer no PDF do tamanho pedido.
 
@@ -312,6 +334,14 @@ def criar_produto():
         # Nasce como rascunho: nao entra no PDF ate ser publicado no painel.
         'ativo': data.get('ativo', False)
     }
+    # Campos de promocao (so incluidos se enviados, para nao quebrar antes da migracao)
+    for campo in ('promo_ativa', 'promo_modo', 'promo_valor'):
+        if campo in data:
+            insert_data[campo] = data[campo]
+    # Validacao de desconto em reais
+    if insert_data.get('promo_ativa') and insert_data.get('promo_modo') == 'reais':
+        if float(insert_data.get('promo_valor') or 0) >= float(insert_data.get('preco') or 0):
+            return jsonify({'error': 'O desconto em R$ nao pode ser maior ou igual ao preco.'}), 400
     resp = sb_table('produtos').insert(insert_data).execute()
     return jsonify({'success': True, 'produto': resp.data[0] if resp.data else insert_data})
 
@@ -348,7 +378,15 @@ def atualizar_produto(prod_id):
     if not supabase:
         return jsonify({'error': 'Supabase nao configurado'}), 500
     data = request.get_json()
-    update_data = {k: v for k, v in data.items() if k in ['nome', 'descricao', 'preco', 'imagem', 'imagem_detalhe', 'cores', 'tamanhos', 'ativo']}
+    update_data = {k: v for k, v in data.items() if k in ['nome', 'descricao', 'preco', 'imagem', 'imagem_detalhe', 'cores', 'tamanhos', 'ativo', 'promo_ativa', 'promo_modo', 'promo_valor']}
+    # Validacao de promocao em reais: desconto nao pode ser >= preco
+    if update_data.get('promo_ativa') and update_data.get('promo_modo') == 'reais':
+        preco = update_data.get('preco')
+        if preco is None:
+            atual_p = sb_table('produtos').select('preco').eq('id', prod_id).single().execute().data or {}
+            preco = atual_p.get('preco')
+        if float(update_data.get('promo_valor') or 0) >= float(preco or 0):
+            return jsonify({'error': 'O desconto em R$ nao pode ser maior ou igual ao preco.'}), 400
     # Se uma foto esta sendo trocada ou removida, apaga o arquivo antigo do bucket.
     campos_foto = [c for c in ('imagem', 'imagem_detalhe') if c in update_data]
     antigos = []
