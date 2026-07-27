@@ -211,7 +211,7 @@ main{padding-top:22px;padding-bottom:90px;}
     <div class="tabs" id="tabs">
       <button class="tab active" data-view="produtos">Produtos</button>
       <button class="tab" data-view="looks">Looks</button>
-      <button class="tab" data-view="combo">Combo PDF</button>
+      <button class="tab" data-view="combo">Gerar catálogo</button>
       <button class="tab" data-view="ajustes">Ajustes</button>
       <div class="tab-indicator" id="tabIndicator"></div>
     </div>
@@ -225,7 +225,6 @@ main{padding-top:22px;padding-bottom:90px;}
       <div class="storage-bar"><div class="storage-fill" id="storageFill"></div></div>
       <div class="storage-hint" id="storageHint"></div>
     </div>
-    <div class="pdfbar" id="pdfActions"></div>
     <div class="filters" id="filtros">
       <div class="filter-group">
         <div class="filter-label">Marca</div>
@@ -248,20 +247,22 @@ main{padding-top:22px;padding-bottom:90px;}
   </section>
 
   <section class="view" id="view-combo">
-    <div class="sec-title" style="margin-top:0;">Combo personalizado</div>
-    <div class="sec-desc">Monte um PDF juntando varias combinacoes. Ex.: Camisetas M + Calcas 42, ou Camisetas Lacoste G + Calcas Levi's 44. Deixe a marca em "Todas" para pegar de todas.</div>
+    <div class="sec-title" style="margin-top:0;">Catálogo completo por tamanho</div>
+    <div class="sec-desc">Todas as marcas e categorias que tenham o tamanho escolhido. O número é quantos produtos publicados entram.</div>
+    <div class="pdfbar" id="pdfActions"></div>
+
+    <div class="sec-title">Por categoria e tamanho</div>
+    <div class="sec-desc">Um catálogo só daquela categoria, no tamanho escolhido (todas as marcas).</div>
+    <div id="pdfPorCategoria"></div>
+
+    <div class="sec-title">Combo personalizado</div>
+    <div class="sec-desc">Monte um PDF juntando várias combinações. Ex.: Camisetas M + Calças 42, ou Camisetas Lacoste G + Calças Levi's 44. Deixe a marca em "Todas" para pegar de todas.</div>
     <div id="comboItens"></div>
-    <button class="btn ghost btn-sm" style="margin-top:8px;" onclick="addComboItem()">+ Adicionar combinacao</button>
+    <button class="btn ghost btn-sm" style="margin-top:8px;" onclick="addComboItem()">+ Adicionar combinação</button>
     <div class="pdfbar" style="margin-top:14px;">
       <a href="#" onclick="gerarCombo('pdf');return false;">Baixar PDF do combo</a>
       <a href="#" class="ghost" onclick="gerarCombo('preview');return false;">Preview</a>
     </div>
-    <div class="sec-title">Por tamanho — completo (todas as marcas)</div>
-    <div class="sec-desc">Roupas: use os botoes de PDF na aba Produtos.</div>
-    <div class="sec-desc" style="margin-top:8px;"><b>Calcas</b></div>
-    <div class="pdfbar" id="pdfCalcas"></div>
-    <div class="sec-desc" style="margin-top:10px;"><b>Tenis</b></div>
-    <div class="pdfbar" id="pdfTenis"></div>
   </section>
 
   <section class="view" id="view-ajustes">
@@ -326,7 +327,7 @@ let marcaAtual=null, categoriaAtual=null;
 let resumo={marcas:{},categorias:{}};
 let editingId=null, editingProduto=null, buscando=false, resultadosBusca=[];
 let editMarcaId=null;
-let catNomesGlobais=[];
+let catNomesGlobais=[], catTamanhosGlobais={};
 
 async function init(){
   bindTabs();
@@ -342,7 +343,17 @@ async function init(){
   renderTabIndicator();
 }
 async function carregarCategoriasGlobais(){
-  try{ const all=await (await fetch('/api/categorias')).json(); catNomesGlobais=[...new Set(all.map(c=>c.nome))].sort(); }catch(e){ catNomesGlobais=[]; }
+  try{
+    const all=await (await fetch('/api/categorias')).json();
+    catNomesGlobais=[...new Set(all.map(c=>c.nome))].sort();
+    // Nome -> tamanhos (primeiro tamanhos_padrao encontrado; fallback pelo mapa fixo)
+    catTamanhosGlobais={};
+    all.forEach(c=>{
+      if(catTamanhosGlobais[c.nome]) return;
+      const tp=(c.tamanhos_padrao||'').split(',').map(s=>s.trim().toUpperCase()).filter(Boolean);
+      catTamanhosGlobais[c.nome]= tp.length ? tp : tamanhosDaCategoria(c.nome);
+    });
+  }catch(e){ catNomesGlobais=[]; catTamanhosGlobais={}; }
 }
 
 /* ---------- Abas ---------- */
@@ -474,35 +485,73 @@ async function fecharPainel(){
 document.addEventListener('keydown', e=>{ if(e.key==='Escape') fecharPainel(); });
 function setPanelStatus(txt,cor){ const e=document.getElementById('panelStatus'); if(e){ e.textContent=txt; e.style.color=cor||'var(--muted)'; } }
 
+/* Estado do formulario "novo produto" (fotos enviadas antes de existir o produto) */
+let novoFotos={imagem:'',imagem_detalhe:''}, novoAtivo=false, novoTamsSel=null;
+
 function abrirNovo(){
   editingId=null; editingProduto=null;
   promoDraft={ativa:false,modo:'pct',valor:0,base:0};
+  novoFotos={imagem:'',imagem_detalhe:''}; novoAtivo=false; novoTamsSel=null;
+  renderNovo();
+  abrirPainel();
+}
+function renderNovo(){
   document.getElementById('panelTitle').textContent='Novo produto';
   const opcM=marcas.map(m=>`<option value="${m.id}" ${marcaAtual&&m.id===marcaAtual.id?'selected':''}>${esc(m.nome)}</option>`).join('');
+  const dados={nome:val('f-nome')||'',preco:val('f-preco')||0,descricao:val('f-desc')||'',cores:val('f-cores')||'',
+               imagem:novoFotos.imagem,imagem_detalhe:novoFotos.imagem_detalhe,ativo:novoAtivo};
+  const marcaSel=val('n-marca'), catSel=val('n-cat');
   document.getElementById('panelBody').innerHTML=`
     <div class="field-2">
       <div class="field"><label>Marca</label><select id="n-marca" onchange="novoTrocaMarca()">${opcM}</select></div>
       <div class="field"><label>Categoria</label><select id="n-cat"></select></div>
     </div>
-    ${formHtml({nome:'',preco:0,descricao:'',cores:'',tamanhos:null,categoria_nome:(categoriaAtual&&categoriaAtual.nome)||''}, true)}`;
-  novoTrocaMarca();
+    ${formHtml(dados, true)}`;
+  if(marcaSel) document.getElementById('n-marca').value=marcaSel;
+  novoTrocaMarca(catSel);
   atualizarPromoPreview();
-  document.getElementById('panelFoot').innerHTML=`<button class="btn" style="flex:1" onclick="criarProduto()">Criar produto (rascunho)</button>`;
-  abrirPainel();
+  document.getElementById('panelFoot').innerHTML=`<button class="btn" style="flex:1" onclick="criarProduto()">Criar produto</button>`;
+}
+function definirAtivoNovo(ativo){
+  novoAtivo=ativo;
+  const sw=document.getElementById('statusSwitch');
+  if(sw) sw.className='switch '+(ativo?'is-live':'is-draft');
+}
+function escolherFotoNova(campo, aspect){
+  const inp=document.createElement('input');
+  inp.type='file'; inp.accept='image/*';
+  inp.onchange=()=>abrirCropCb(inp, aspect, async (url)=>{
+    novoFotos[campo]=url;
+    novoTamsSel=Array.from(document.querySelectorAll('#f-sizes .size-chk.on')).map(e=>e.dataset.size);
+    renderNovo();
+  });
+  inp.click();
+}
+function removerFotoNova(campo){
+  novoFotos[campo]='';
+  novoTamsSel=Array.from(document.querySelectorAll('#f-sizes .size-chk.on')).map(e=>e.dataset.size);
+  renderNovo();
+  showToast('Foto removida');
 }
 let novoCats=[];
-async function novoTrocaMarca(){
+async function novoTrocaMarca(manterCat){
   const mid=val('n-marca');
   try{ novoCats=await (await fetch('/api/categorias/'+mid)).json(); }catch(e){ novoCats=[]; }
   const sel=document.getElementById('n-cat');
   sel.innerHTML=novoCats.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join('');
+  if(manterCat && novoCats.some(c=>String(c.id)===String(manterCat))) sel.value=manterCat;
+  else if(categoriaAtual && !isTodos() && novoCats.some(c=>c.id===categoriaAtual.id)) sel.value=categoriaAtual.id;
   novoTrocaCategoria();
-  sel.onchange=novoTrocaCategoria;
+  sel.onchange=()=>novoTrocaCategoria();
 }
 function novoTrocaCategoria(){
   const cid=parseInt(val('n-cat'),10);
   const catObj=novoCats.find(c=>c.id===cid);
-  renderSizes(tamsDeCategoria(catObj, catObj&&catObj.nome), []);
+  const tams=tamsDeCategoria(catObj, catObj&&catObj.nome);
+  // preserva o que ja estava marcado (ex.: apos enviar uma foto)
+  const sel=(novoTamsSel||[]).filter(t=>tams.includes(t));
+  renderSizes(tams, sel);
+  novoTamsSel=null;
 }
 
 function abrirEditar(id){
@@ -524,17 +573,26 @@ function abrirEditar(id){
 
 /* HTML do formulario (compartilhado por novo/editar) */
 function formHtml(p, isNew, catNome){
-  const idAttr = isNew ? '' : '';
   const fotoMain = p.imagem ? `<img src="${esc(p.imagem)}">` : `<span class="plus">+</span><span>Foto principal</span>`;
   const fotoDet = p.imagem_detalhe ? `<img src="${esc(p.imagem_detalhe)}">` : `<span class="plus">+</span><span>Detalhe</span>`;
-  const remMain = (!isNew && p.imagem) ? `<button type="button" class="btn-remove-foto" onclick="removerFoto('imagem')">tirar foto</button>` : '';
-  const remDet = (!isNew && p.imagem_detalhe) ? `<button type="button" class="btn-remove-foto" onclick="removerFoto('imagem_detalhe')">tirar detalhe</button>` : '';
-  const fotos = isNew ? '' : `
+  const fnMain = isNew ? `escolherFotoNova('imagem',250/340)` : `escolherFoto('imagem',250/340)`;
+  const fnDet  = isNew ? `escolherFotoNova('imagem_detalhe',1)` : `escolherFoto('imagem_detalhe',1)`;
+  const fnRem  = isNew ? 'removerFotoNova' : 'removerFoto';
+  const remMain = p.imagem ? `<button type="button" class="btn-remove-foto" onclick="${fnRem}('imagem')">tirar foto</button>` : '';
+  const remDet = p.imagem_detalhe ? `<button type="button" class="btn-remove-foto" onclick="${fnRem}('imagem_detalhe')">tirar detalhe</button>` : '';
+  const fotos = `
     <div class="photos">
-      <div class="photo-slot"><div class="plabel">Foto</div><div class="photo-box" onclick="escolherFoto('imagem',250/340)">${fotoMain}</div>${remMain}</div>
-      <div class="photo-slot"><div class="plabel">Detalhe</div><div class="photo-box det" onclick="escolherFoto('imagem_detalhe',1)">${fotoDet}</div>${remDet}</div>
+      <div class="photo-slot"><div class="plabel">Foto</div><div class="photo-box" onclick="${fnMain}">${fotoMain}</div>${remMain}</div>
+      <div class="photo-slot"><div class="plabel">Detalhe</div><div class="photo-box det" onclick="${fnDet}">${fotoDet}</div>${remDet}</div>
     </div>`;
-  const statusBloco = isNew ? '' : `
+  const statusBloco = isNew ? `
+    <div class="field"><label>Status ao criar</label>
+      <div class="switch ${p.ativo?'is-live':'is-draft'}" id="statusSwitch">
+        <div class="knob"></div>
+        <button onclick="definirAtivoNovo(false)">Rascunho</button>
+        <button onclick="definirAtivoNovo(true)">Publicado</button>
+      </div>
+    </div>` : `
     <div class="field"><label>Status</label>
       <div class="switch ${p.ativo?'is-live':'is-draft'}" id="statusSwitch">
         <div class="knob"></div>
@@ -666,18 +724,18 @@ async function criarProduto(){
   const cid=parseInt(sel.value,10);
   if(!mid||!cid){ showToast('Escolha marca e categoria'); return; }
   if(promoInvalida()){ showToast('O desconto não pode ser maior que o preço'); return; }
-  const body=lerForm();
+  const body={...lerForm(), imagem:novoFotos.imagem, imagem_detalhe:novoFotos.imagem_detalhe, ativo:novoAtivo};
   const r=await fetch('/api/produto',{method:'POST',headers:JSONH,body:JSON.stringify({marca_id:mid,categoria_id:cid,...body})});
   const d=await r.json();
   if(!r.ok){ showToast(d.error||'Erro ao criar'); return; }
   if(d.success){
-    showToast('Rascunho criado: '+d.produto.ref);
+    showToast((novoAtivo?'Produto publicado: ':'Rascunho criado: ')+d.produto.ref);
     // navega para onde criou e reabre em modo edicao
     document.getElementById('searchInput').value=''; buscando=false; document.getElementById('filtros').style.display='';
     marcaAtual=marcas.find(m=>m.id===mid);
     await carregarCategorias(mid);
     categoriaAtual=categorias.find(c=>c.id===cid)||categoriaAtual;
-    renderPills(); await carregarProdutos(); await atualizarResumo(); carregarContagem();
+    renderPills(); await carregarProdutos(); await atualizarResumo(); carregarContagem(); carregarStorage();
     await fecharPainel();
   }else{ showToast(d.error||'Erro ao criar'); }
 }
@@ -809,9 +867,14 @@ async function carregarContagem(){
 }
 function carregarPdfPorTamanho(){
   const link=(cat,t)=>'/pdf-combo?itens='+encodeURIComponent(JSON.stringify([{marca_id:null,categoria:cat,tamanho:t}]));
-  const cal=document.getElementById('pdfCalcas'), ten=document.getElementById('pdfTenis');
-  if(cal) cal.innerHTML=tamanhosDaCategoria('CALÇAS').map(t=>`<a href="${link('CALÇAS',t)}" target="_blank" onclick="showToast('Gerando Calcas ${t}...')">Calcas ${t}</a>`).join('');
-  if(ten) ten.innerHTML=tamanhosDaCategoria('TÊNIS').map(t=>`<a href="${link('TÊNIS',t)}" target="_blank" onclick="showToast('Gerando Tenis ${t}...')">Tenis ${t}</a>`).join('');
+  const el=document.getElementById('pdfPorCategoria'); if(!el) return;
+  const nomes=catNomesGlobais.length?catNomesGlobais:Object.keys(catTamanhosGlobais);
+  if(!nomes.length){ el.innerHTML='<div class="sec-desc">Nenhuma categoria cadastrada ainda.</div>'; return; }
+  el.innerHTML=nomes.map(nome=>{
+    const tams=catTamanhosGlobais[nome]||tamanhosDaCategoria(nome);
+    const botoes=tams.map(t=>`<a href="${link(nome,t)}" target="_blank" onclick="showToast('Gerando ${esc(nome)} ${t}...')">${esc(nome)} ${t}</a>`).join('');
+    return `<div class="sec-desc" style="margin:10px 0 6px;"><b>${esc(nome)}</b></div><div class="pdfbar">${botoes}</div>`;
+  }).join('');
 }
 
 /* ---------- Storage ---------- */
@@ -1006,7 +1069,7 @@ async function adicionarCategoria(marcaId){
   if(!nome){ showToast('Escolha uma categoria da lista ou digite um nome'); return; }
   const r=await fetch('/api/categoria',{method:'POST',headers:JSONH,body:JSON.stringify({marca_id:marcaId, nome})});
   const d=await r.json().catch(()=>({})); if(!r.ok){ showToast(d.error||'Erro'); return; }
-  await recarregarMarcasResumo(); await carregarCategoriasGlobais();
+  await recarregarMarcasResumo(); await carregarCategoriasGlobais(); carregarPdfPorTamanho();
   abrirEditarMarca(marcaId); showToast('Categoria adicionada');
 }
 async function salvarCategoria(id){

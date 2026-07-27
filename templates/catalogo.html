@@ -35,8 +35,9 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; color:#1a1a1a; b
 .preco-de { font-size:13px; color:#999; text-decoration:line-through; margin-bottom:2px; }
 .product-price.promo { color:#a5342a; }
 .promo-off { font-size:12px; font-weight:700; color:#a5342a; background:#faeae8; padding:2px 8px; margin-left:8px; letter-spacing:1px; }
-.product-image .ph { background:#e8e8e8; border:1px solid #e0e0e0; overflow:hidden; height:100%; }
-.product-image .ph img { width:100%; height:100%; object-fit:cover; display:block; }
+.product-image .ph { background:#fff; border:1px solid #e0e0e0; overflow:hidden; height:100%; }
+/* contain: mostra a foto inteira, sem cortar as laterais */
+.product-image .ph img { width:100%; height:100%; object-fit:contain; display:block; }
 .product-info { flex:1; display:flex; flex-direction:column; justify-content:flex-start; padding-top:14px; }
 .product-ref { font-size:11px; color:#bbb; letter-spacing:1px; margin-bottom:3px; }
 .product-name { font-size:20px; font-weight:700; color:#1a1a1a; margin-bottom:8px; }
@@ -46,8 +47,8 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; color:#1a1a1a; b
 /* Card da foto de detalhe, na coluna de info (embaixo do preco/compra) */
 .detail-card { margin-top:16px; }
 .detail-card .dlabel { font-size:9px; letter-spacing:1.5px; text-transform:uppercase; color:#bbb; margin-bottom:5px; }
-.detail-card .dbox { width:120px; height:120px; background:#e8e8e8; border:1px solid #e0e0e0; overflow:hidden; }
-.detail-card .dbox img { width:100%; height:100%; object-fit:cover; display:block; }
+.detail-card .dbox { width:120px; height:120px; background:#fff; border:1px solid #e0e0e0; overflow:hidden; }
+.detail-card .dbox img { width:100%; height:100%; object-fit:contain; display:block; }
 
 /* LOOKS */
 .looks-page h2 { font-size:14px; font-weight:700; letter-spacing:4px; text-transform:uppercase; text-align:center; margin-bottom:6px; }
