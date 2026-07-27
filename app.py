@@ -297,11 +297,36 @@ def api_categorias(marca_id):
     resp = sb_table('categorias').select('*').eq('marca_id', marca_id).order('ordem').execute()
     return jsonify(resp.data or [])
 
+@app.route('/api/categorias')
+@requer_senha
+def api_todas_categorias():
+    """Todas as categorias (de todas as marcas) — para sugerir nomes ja usados."""
+    if not supabase:
+        return jsonify([])
+    resp = sb_table('categorias').select('*').order('ordem').execute()
+    return jsonify(resp.data or [])
+
+@app.route('/api/produtos-todos/<int:marca_id>')
+@requer_senha
+def api_produtos_marca(marca_id):
+    """Todos os produtos de uma marca (todas as categorias) — para a visao 'TODOS'."""
+    if not supabase:
+        return jsonify([])
+    q = sb_table('produtos').select('*').eq('marca_id', marca_id)
+    if request.args.get('incluir_rascunho') != '1':
+        q = q.eq('ativo', True)
+    resp = q.order('id').execute()
+    return jsonify(resp.data or [])
+
 # ============ MARCAS E CATEGORIAS (editaveis) ============
 
 def _proximo_id(tabela):
     rows = sb_table(tabela).select('id').execute().data or []
     return (max(r['id'] for r in rows) + 1) if rows else 1
+
+def _proxima_ordem(tabela):
+    rows = sb_table(tabela).select('ordem').execute().data or []
+    return (max((r.get('ordem') or 0) for r in rows) + 1) if rows else 1
 
 @app.route('/api/marca', methods=['POST'])
 @requer_senha
@@ -314,8 +339,9 @@ def criar_marca():
         return jsonify({'error': 'Informe o nome da marca.'}), 400
     if sb_table('marcas').select('id').eq('nome', nome).execute().data:
         return jsonify({'error': 'Ja existe uma marca com esse nome.'}), 409
+    ordem = data['ordem'] if data.get('ordem') is not None else _proxima_ordem('marcas')
     novo = {'id': _proximo_id('marcas'), 'nome': nome,
-            'prefixo': (data.get('prefixo') or nome[:1]).upper()[:2], 'ordem': data.get('ordem', 99)}
+            'prefixo': (data.get('prefixo') or nome[:1]).upper()[:2], 'ordem': ordem}
     try:
         resp = sb_table('marcas').insert(novo).execute()
     except Exception:
@@ -370,9 +396,21 @@ def criar_categoria():
     nome = (data.get('nome') or '').strip()
     if not nome:
         return jsonify({'error': 'Informe o nome da categoria.'}), 400
+    if data.get('ordem') is not None:
+        ordem = data['ordem']
+    else:
+        irmas = sb_table('categorias').select('ordem').eq('marca_id', data['marca_id']).execute().data or []
+        ordem = (max((c.get('ordem') or 0) for c in irmas) + 1) if irmas else 1
+    # Se ja existe uma categoria com esse nome (em qualquer marca), reaproveita os tamanhos padrao dela
+    tamanhos_ref = None
+    iguais = sb_table('categorias').select('tamanhos_padrao').eq('nome', nome).execute().data or []
+    for c in iguais:
+        if c.get('tamanhos_padrao'):
+            tamanhos_ref = c['tamanhos_padrao']
+            break
     novo = {'id': _proximo_id('categorias'), 'marca_id': data['marca_id'], 'nome': nome,
-            'ordem': data.get('ordem', 99),
-            'tamanhos_padrao': data.get('tamanhos_padrao') or ','.join(tamanhos_da_categoria(nome))}
+            'ordem': ordem,
+            'tamanhos_padrao': data.get('tamanhos_padrao') or tamanhos_ref or ','.join(tamanhos_da_categoria(nome))}
     resp = sb_table('categorias').insert(novo).execute()
     return jsonify({'success': True, 'categoria': resp.data[0] if resp.data else novo})
 
