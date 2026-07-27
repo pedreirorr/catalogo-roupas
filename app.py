@@ -470,8 +470,10 @@ def criar_produto():
         'nome': data.get('nome', 'Novo Produto'),
         'descricao': data.get('descricao', ''),
         'preco': data.get('preco', 0),
-        'imagem': data.get('imagem', ''),
-        'imagem_detalhe': data.get('imagem_detalhe', ''),
+        # Se a foto ja pertence a outro produto (ex.: duplicar), ganha uma copia
+        # propria no bucket - assim editar/remover a foto de um nao afeta o outro.
+        'imagem': _duplicar_arquivo_se_compartilhado(data.get('imagem', '')),
+        'imagem_detalhe': _duplicar_arquivo_se_compartilhado(data.get('imagem_detalhe', '')),
         'cores': data.get('cores', ''),
         'tamanhos': data.get('tamanhos', tamanhos_padrao),
         # Nasce como rascunho: nao entra no PDF ate ser publicado no painel.
@@ -498,6 +500,34 @@ def _nome_arquivo_do_url(url):
         nome = url.split(marcador, 1)[1].strip('/')
         return nome or None
     return None
+
+def _duplicar_arquivo_se_compartilhado(url):
+    """Se esta URL de foto ja pertence a outro produto, copia o arquivo no bucket e
+    devolve a URL da copia. Evita que dois produtos apontem para o mesmo arquivo -
+    do contrario, trocar/remover a foto de um (o que apaga o arquivo antigo do
+    bucket) quebraria a foto do outro. So copia quando ha compartilhamento de
+    verdade; uma foto recem-enviada (sem produto usando ainda) e reaproveitada
+    como esta, sem gastar Storage a toa.
+    """
+    if not url or not supabase:
+        return url
+    nome = _nome_arquivo_do_url(url)
+    if not nome:
+        return url
+    em_uso = (
+        sb_table('produtos').select('id').eq('imagem', url).execute().data
+        or sb_table('produtos').select('id').eq('imagem_detalhe', url).execute().data
+    )
+    if not em_uso:
+        return url
+    ext = os.path.splitext(nome)[1] or '.jpg'
+    novo_nome = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{os.urandom(4).hex()}{ext}"
+    try:
+        supabase.storage.from_(BUCKET_NAME).copy(nome, novo_nome)
+        return supabase.storage.from_(BUCKET_NAME).get_public_url(novo_nome)
+    except Exception as e:
+        print(f"Aviso ao duplicar arquivo do storage: {e}")
+        return url
 
 def _apagar_arquivos_storage(urls):
     """Apaga do bucket os arquivos das URLs informadas (libera espaco). Tolerante a erro."""
