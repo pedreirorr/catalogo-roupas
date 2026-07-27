@@ -35,19 +35,19 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; color:#1a1a1a; b
 .preco-de { font-size:13px; color:#999; text-decoration:line-through; margin-bottom:2px; }
 .product-price.promo { color:#a5342a; }
 .promo-off { font-size:12px; font-weight:700; color:#a5342a; background:#faeae8; padding:2px 8px; margin-left:8px; letter-spacing:1px; }
-.product-image .ph { background:#e8e8e8; border:1px solid #e0e0e0; overflow:hidden; }
+.product-image .ph { background:#e8e8e8; border:1px solid #e0e0e0; overflow:hidden; height:100%; }
 .product-image .ph img { width:100%; height:100%; object-fit:cover; display:block; }
-.product-image .ph.main { height:100%; }
-/* Com detalhe: a foto principal continua alta (quase sem corte) e o detalhe
-   fica como uma foto menor abaixo. */
-.product-image.with-detail .ph.main { height:74%; margin-bottom:2%; }
-.product-image.with-detail .ph.detail { height:24%; }
 .product-info { flex:1; display:flex; flex-direction:column; justify-content:flex-start; padding-top:14px; }
 .product-ref { font-size:11px; color:#bbb; letter-spacing:1px; margin-bottom:3px; }
 .product-name { font-size:20px; font-weight:700; color:#1a1a1a; margin-bottom:8px; }
 .product-desc { font-size:12px; color:#666; line-height:1.5; margin-bottom:10px; max-width:300px; }
 .product-price { font-size:23px; font-weight:700; color:#1a1a1a; margin-bottom:16px; }
 .buy-btn { display:inline-block; padding:13px 30px; background:#1a1a1a; color:#fff; font-size:11px; font-weight:600; letter-spacing:2px; text-transform:uppercase; border:none; text-decoration:none; width:fit-content; }
+/* Card da foto de detalhe, na coluna de info (embaixo do preco/compra) */
+.detail-card { margin-top:16px; }
+.detail-card .dlabel { font-size:9px; letter-spacing:1.5px; text-transform:uppercase; color:#bbb; margin-bottom:5px; }
+.detail-card .dbox { width:120px; height:120px; background:#e8e8e8; border:1px solid #e0e0e0; overflow:hidden; }
+.detail-card .dbox img { width:100%; height:100%; object-fit:cover; display:block; }
 
 /* LOOKS */
 .looks-page h2 { font-size:14px; font-weight:700; letter-spacing:4px; text-transform:uppercase; text-align:center; margin-bottom:6px; }
@@ -121,18 +121,13 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; color:#1a1a1a; b
         {% for prod in par %}
           {% set promo = calcular_promo(prod.preco, prod.promo_modo, prod.promo_valor) if prod.promo_ativa else None %}
           <div class="product-item">
-            <div class="product-image {% if prod.imagem_detalhe %}with-detail{% endif %}">
+            <div class="product-image">
               {% if promo %}<div class="promo-flag">-{{ promo[1]|round|int }}%</div>{% endif %}
               <div class="ph main">
                 {% if prod.imagem %}
                   <img src="{{ prod.imagem }}" alt="{{ prod.nome }}" onerror="this.style.display='none'">
                 {% endif %}
               </div>
-              {% if prod.imagem_detalhe %}
-                <div class="ph detail">
-                  <img src="{{ prod.imagem_detalhe }}" alt="Detalhe" onerror="this.style.display='none'">
-                </div>
-              {% endif %}
             </div>
             <div class="product-info">
               <div class="product-ref">REF: {{ prod.ref }}</div>
@@ -145,6 +140,12 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; color:#1a1a1a; b
                 <div class="product-price">R$ {{ format_preco(prod.preco) }}</div>
               {% endif %}
               <a href="https://wa.me/{{ whatsapp }}?text={{ (('Tenho interesse na Ref.: ' ~ prod.ref) ~ (' (promo R$ ' ~ format_preco(promo[0]) ~ ')' if promo else ''))|trim|urlencode }}" class="buy-btn" target="_blank">COMPRAR OPÇÃO {{ loop.index }}</a>
+              {% if prod.imagem_detalhe %}
+                <div class="detail-card">
+                  <div class="dlabel">Detalhe</div>
+                  <div class="dbox"><img src="{{ prod.imagem_detalhe }}" alt="Detalhe" onerror="this.style.display='none'"></div>
+                </div>
+              {% endif %}
             </div>
           </div>
         {% endfor %}

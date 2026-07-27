@@ -326,10 +326,12 @@ let marcaAtual=null, categoriaAtual=null;
 let resumo={marcas:{},categorias:{}};
 let editingId=null, editingProduto=null, buscando=false, resultadosBusca=[];
 let editMarcaId=null;
+let catNomesGlobais=[];
 
 async function init(){
   bindTabs();
   await carregarResumo();
+  await carregarCategoriasGlobais();
   await carregarMarcas();
   if(marcas.length){ marcaAtual=marcas[0]; await carregarCategorias(marcas[0].id); }
   await carregarContagem();
@@ -338,6 +340,9 @@ async function init(){
   renderCombo(); carregarPdfPorTamanho();
   await carregarLooks();
   renderTabIndicator();
+}
+async function carregarCategoriasGlobais(){
+  try{ const all=await (await fetch('/api/categorias')).json(); catNomesGlobais=[...new Set(all.map(c=>c.nome))].sort(); }catch(e){ catNomesGlobais=[]; }
 }
 
 /* ---------- Abas ---------- */
@@ -370,9 +375,14 @@ async function carregarCategorias(marcaId){
   renderPills();
   await carregarProdutos();
 }
+function isTodos(){ return categoriaAtual && categoriaAtual.id==='__todos__'; }
+function catDoProduto(p){ return categorias.find(c=>c.id===p.categoria_id) || null; }
 async function carregarProdutos(){
   if(!marcaAtual||!categoriaAtual){ produtos=[]; renderGrid(); return; }
-  produtos=await (await fetch(`/api/produtos/${marcaAtual.id}/${categoriaAtual.id}?incluir_rascunho=1`)).json();
+  const url = isTodos()
+    ? `/api/produtos-todos/${marcaAtual.id}?incluir_rascunho=1`
+    : `/api/produtos/${marcaAtual.id}/${categoriaAtual.id}?incluir_rascunho=1`;
+  produtos=await (await fetch(url)).json();
   produtos.sort((a,b)=>b.id-a.id);
   renderGrid();
 }
@@ -381,7 +391,10 @@ function renderPills(){
   const mp=document.getElementById('marcaPills');
   mp.innerHTML=marcas.map(m=>`<button class="pill ${marcaAtual&&m.id===marcaAtual.id?'active':''}" onclick="selecionarMarca(${m.id})">${esc(m.nome)}<span class="count">${resumo.marcas[m.id]||0}</span></button>`).join('');
   const cp=document.getElementById('catPills');
-  cp.innerHTML=categorias.map(c=>`<button class="pill small ${categoriaAtual&&c.id===categoriaAtual.id?'active':''}" onclick="selecionarCategoria(${c.id})">${esc(c.nome)}<span class="count">${resumo.categorias[c.id]||0}</span></button>`).join('');
+  const todosTotal = resumo.marcas[marcaAtual&&marcaAtual.id]||0;
+  let html=`<button class="pill small ${isTodos()?'active':''}" onclick="selecionarCategoria('__todos__')">TODOS<span class="count">${todosTotal}</span></button>`;
+  html+=categorias.map(c=>`<button class="pill small ${categoriaAtual&&categoriaAtual.id===c.id?'active':''}" onclick="selecionarCategoria(${c.id})">${esc(c.nome)}<span class="count">${resumo.categorias[c.id]||0}</span></button>`).join('');
+  cp.innerHTML=html;
 }
 async function selecionarMarca(id){
   await flushSaves();
@@ -390,7 +403,7 @@ async function selecionarMarca(id){
 }
 async function selecionarCategoria(id){
   await flushSaves();
-  categoriaAtual=categorias.find(c=>c.id===id);
+  categoriaAtual = (id==='__todos__') ? {id:'__todos__',nome:'TODOS'} : categorias.find(c=>c.id===id);
   renderPills();
   await carregarProdutos();
 }
@@ -571,8 +584,9 @@ function renderSizes(tams, selecionados){
 /* Preenche os tamanhos ao abrir editar (precisa do catNome) */
 function ligarAutosave(){
   const p=editingProduto;
-  const catNome=p.categoria_nome || (categoriaAtual&&categoriaAtual.nome) || '';
-  const tams=tamsDeCategoria(categoriaAtual, catNome);
+  const catObj = catDoProduto(p) || (isTodos() ? null : categoriaAtual);
+  const catNome = (catObj&&catObj.nome) || p.categoria_nome || '';
+  const tams=tamsDeCategoria(catObj, catNome);
   const tamProd = (p.tamanhos!=null ? p.tamanhos : tams.join(',')).split(',');
   renderSizes(tams, tamProd);
   ['f-nome','f-preco','f-desc','f-cores'].forEach(id=>{
@@ -931,18 +945,22 @@ function marcaFormHtml(m, cats){
     <div class="field"><label>Nome da marca</label><input id="m-nome" value="${esc(m.nome)}"></div>
     <div class="field-2">
       <div class="field"><label>Prefixo da REF</label><input id="m-prefixo" value="${esc(m.prefixo||'')}" maxlength="2"></div>
-      <div class="field"><label>Ordem</label><input id="m-ordem" type="number" value="${m.ordem||0}"></div>
+      <div class="field"><label>Ordem</label><input id="m-ordem" type="number" placeholder="auto" value="${(m.ordem!==''&&m.ordem!=null)?m.ordem:''}"></div>
     </div>
     <div class="sec-desc">O prefixo entra nas REFs dos <b>novos</b> produtos. Produtos já criados mantêm a REF antiga.</div>
     ${isNew ? '<div class="sec-desc">Salve a marca para poder adicionar categorias.</div>' :
       `<div class="sec-title" style="margin-top:20px;">Categorias</div>${catsHtml || '<div class="sec-desc">Nenhuma categoria ainda.</div>'}
-       <button class="btn ghost btn-sm" onclick="adicionarCategoria(${m.id})">+ Adicionar categoria</button>`}`;
+       <datalist id="catNomesList">${catNomesGlobais.map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
+       <div style="display:flex;gap:6px;margin-top:8px;">
+         <input id="nova-cat-nome" list="catNomesList" placeholder="Categoria (escolha uma já usada ou digite)" style="flex:1;padding:9px;border:1px solid var(--line-strong);font-size:14px;">
+         <button class="btn btn-sm" onclick="adicionarCategoria(${m.id})">+ Criar categoria</button>
+       </div>`}`;
 }
 function abrirNovaMarca(){
   editMarcaId=null; editingId=null; editingProduto=null;
   document.getElementById('panelTitle').textContent='Nova marca';
   setPanelStatus('');
-  document.getElementById('panelBody').innerHTML=marcaFormHtml({nome:'',prefixo:'',ordem:99}, []);
+  document.getElementById('panelBody').innerHTML=marcaFormHtml({nome:'',prefixo:'',ordem:''}, []);
   document.getElementById('panelFoot').innerHTML=`<button class="btn" style="flex:1" onclick="salvarMarcaNova()">Criar marca</button>`;
   abrirPainel();
 }
@@ -958,16 +976,21 @@ async function abrirEditarMarca(id){
     <button class="btn" style="flex:1" onclick="salvarMarca(${id})">Salvar marca</button>`;
   abrirPainel();
 }
+function _bodyMarca(){
+  const body={nome:val('m-nome').trim(), prefixo:val('m-prefixo')};
+  const o=parseInt(val('m-ordem')); if(!isNaN(o)) body.ordem=o; // vazio => backend calcula (maior+1)
+  return body;
+}
 async function salvarMarcaNova(){
-  const nome=val('m-nome').trim(); if(!nome){ showToast('Informe o nome da marca'); return; }
-  const r=await fetch('/api/marca',{method:'POST',headers:JSONH,body:JSON.stringify({nome, prefixo:val('m-prefixo'), ordem:parseInt(val('m-ordem'))||99})});
+  if(!val('m-nome').trim()){ showToast('Informe o nome da marca'); return; }
+  const r=await fetch('/api/marca',{method:'POST',headers:JSONH,body:JSON.stringify(_bodyMarca())});
   const d=await r.json().catch(()=>({})); if(!r.ok){ showToast(d.error||'Erro ao criar marca'); return; }
   await recarregarMarcasResumo(); renderAjustes(); renderPills();
-  abrirEditarMarca(d.marca.id); showToast('Marca criada');
+  abrirEditarMarca(d.marca.id); showToast('Marca criada — agora adicione as categorias');
 }
 async function salvarMarca(id){
-  const nome=val('m-nome').trim(); if(!nome){ showToast('Informe o nome da marca'); return; }
-  const r=await fetch('/api/marca/'+id,{method:'PUT',headers:JSONH,body:JSON.stringify({nome, prefixo:val('m-prefixo'), ordem:parseInt(val('m-ordem'))||0})});
+  if(!val('m-nome').trim()){ showToast('Informe o nome da marca'); return; }
+  const r=await fetch('/api/marca/'+id,{method:'PUT',headers:JSONH,body:JSON.stringify(_bodyMarca())});
   const d=await r.json().catch(()=>({})); if(!r.ok){ showToast(d.error||'Erro ao salvar'); return; }
   await recarregarMarcasResumo(); renderAjustes(); renderPills(); showToast('Marca salva');
 }
@@ -979,9 +1002,12 @@ async function removerMarca(id){
   await recarregarMarcasResumo(); await fecharPainel(); renderAjustes(); renderPills(); showToast('Marca removida');
 }
 async function adicionarCategoria(marcaId){
-  const r=await fetch('/api/categoria',{method:'POST',headers:JSONH,body:JSON.stringify({marca_id:marcaId, nome:'NOVA CATEGORIA'})});
+  const nome=(val('nova-cat-nome')||'').trim();
+  if(!nome){ showToast('Escolha uma categoria da lista ou digite um nome'); return; }
+  const r=await fetch('/api/categoria',{method:'POST',headers:JSONH,body:JSON.stringify({marca_id:marcaId, nome})});
   const d=await r.json().catch(()=>({})); if(!r.ok){ showToast(d.error||'Erro'); return; }
-  await recarregarMarcasResumo(); abrirEditarMarca(marcaId); showToast('Categoria adicionada');
+  await recarregarMarcasResumo(); await carregarCategoriasGlobais();
+  abrirEditarMarca(marcaId); showToast('Categoria adicionada');
 }
 async function salvarCategoria(id){
   const box=document.querySelector(`.cat-edit[data-cat="${id}"]`); if(!box) return;
