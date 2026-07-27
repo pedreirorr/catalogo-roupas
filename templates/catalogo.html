@@ -30,14 +30,15 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; color:#1a1a1a; b
 .products-page .section-subtitle { font-size:11px; color:#999; letter-spacing:3px; text-transform:uppercase; text-align:center; margin-bottom:22px; }
 .product-item { display:flex; gap:24px; margin-bottom:26px; page-break-inside:avoid; height:420px; }
 .product-item:last-child { margin-bottom:0; }
-.product-image { width:250px; height:100%; flex-shrink:0; position:relative; }
+/* 315x420 = 3:4, a mesma proporcao do corte no painel: a foto preenche a
+   caixa exatamente, sem faixa branca em cima/embaixo e sem cortar as laterais. */
+.product-image { width:315px; height:100%; flex-shrink:0; position:relative; }
 .product-image .promo-flag { position:absolute; top:0; left:0; background:#a5342a; color:#fff; font-size:12px; font-weight:700; letter-spacing:1px; padding:4px 11px; z-index:2; }
 .preco-de { font-size:13px; color:#999; text-decoration:line-through; margin-bottom:2px; }
 .product-price.promo { color:#a5342a; }
 .promo-off { font-size:12px; font-weight:700; color:#a5342a; background:#faeae8; padding:2px 8px; margin-left:8px; letter-spacing:1px; }
 .product-image .ph { background:#fff; border:1px solid #e0e0e0; overflow:hidden; height:100%; }
-/* contain: mostra a foto inteira, sem cortar as laterais */
-.product-image .ph img { width:100%; height:100%; object-fit:contain; display:block; }
+.product-image .ph img { width:100%; height:100%; object-fit:cover; display:block; }
 .product-info { flex:1; display:flex; flex-direction:column; justify-content:flex-start; padding-top:14px; }
 .product-ref { font-size:11px; color:#bbb; letter-spacing:1px; margin-bottom:3px; }
 .product-name { font-size:20px; font-weight:700; color:#1a1a1a; margin-bottom:8px; }
@@ -48,7 +49,7 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; color:#1a1a1a; b
 .detail-card { margin-top:16px; }
 .detail-card .dlabel { font-size:9px; letter-spacing:1.5px; text-transform:uppercase; color:#bbb; margin-bottom:5px; }
 .detail-card .dbox { width:120px; height:120px; background:#fff; border:1px solid #e0e0e0; overflow:hidden; }
-.detail-card .dbox img { width:100%; height:100%; object-fit:contain; display:block; }
+.detail-card .dbox img { width:100%; height:100%; object-fit:cover; display:block; }
 
 /* LOOKS */
 .looks-page h2 { font-size:14px; font-weight:700; letter-spacing:4px; text-transform:uppercase; text-align:center; margin-bottom:6px; }
@@ -57,7 +58,8 @@ body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; color:#1a1a1a; b
 .look-card h3 { font-size:13px; font-weight:700; letter-spacing:3px; text-transform:uppercase; text-align:center; margin-bottom:18px; }
 .look-items { display:flex; gap:18px; margin-bottom:14px; }
 .look-item { flex:1; text-align:center; }
-.look-item .img-placeholder { width:100%; height:170px; background:#e8e8e8; display:flex; align-items:center; justify-content:center; color:#999; font-size:10px; letter-spacing:1px; text-transform:uppercase; margin-bottom:10px; overflow:hidden; }
+/* 170x170 = 1:1, a mesma proporcao do corte das pecas de look (sem corte/faixa) */
+.look-item .img-placeholder { width:170px; height:170px; max-width:100%; background:#fff; border:1px solid #e0e0e0; display:flex; align-items:center; justify-content:center; color:#999; font-size:10px; letter-spacing:1px; text-transform:uppercase; margin:0 auto 10px; overflow:hidden; }
 .look-item .img-placeholder img { width:100%; height:100%; object-fit:cover; }
 .look-item .ref { font-size:10px; color:#bbb; letter-spacing:1px; }
 .look-item .name { font-size:12px; font-weight:700; color:#1a1a1a; margin:3px 0; }
