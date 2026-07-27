@@ -742,7 +742,7 @@ def gerar_pdf(tamanho):
 
     # PDF gerado em memoria: nada fica gravado no disco do servidor
     pdf_bytes = HTML(string=html, base_url=request.host_url).write_pdf()
-    return send_file(BytesIO(pdf_bytes), as_attachment=True, download_name=f'catalogo_{tamanho}.pdf', mimetype='application/pdf')
+    return send_file(BytesIO(pdf_bytes), as_attachment=True, download_name=f'Catalogo_{_slug_arquivo(tamanho)}.pdf', mimetype='application/pdf')
 
 @app.route('/preview/<tamanho>')
 def preview_pdf(tamanho):
@@ -770,6 +770,39 @@ def _parse_combo_itens():
         norm.append({'marca_id': mid, 'categoria': it.get('categoria') or None, 'tamanho': it.get('tamanho') or None})
     return norm
 
+def _slug_arquivo(txt):
+    """Normaliza para nome de arquivo: 'TÊNIS' -> 'TENIS', "LEVI'S" -> 'LEVIS'."""
+    import unicodedata, re as _re
+    txt = unicodedata.normalize('NFKD', str(txt or '')).encode('ascii', 'ignore').decode()
+    txt = txt.replace("'", '').replace('"', '')
+    return _re.sub(r'[^A-Za-z0-9]+', '_', txt).strip('_')
+
+def _nome_arquivo_combo(itens):
+    """Monta o nome do PDF a partir das combinacoes.
+    1 item  -> 'Camisetas_P.pdf'
+    2 itens -> 'Camisetas_P-Tenis_39.pdf'
+    com marca -> 'Lacoste_Camisetas_G.pdf'
+    """
+    marcas = {}
+    if supabase:
+        for m in (sb_table('marcas').select('id,nome').execute().data or []):
+            marcas[m['id']] = m['nome']
+    partes = []
+    for it in itens:
+        pedacos = []
+        if it.get('marca_id') and marcas.get(it['marca_id']):
+            pedacos.append(_slug_arquivo(marcas[it['marca_id']]).title())
+        if it.get('categoria'):
+            pedacos.append(_slug_arquivo(it['categoria']).title())
+        else:
+            pedacos.append('Catalogo')  # sem categoria: e o catalogo inteiro naquele tamanho
+        if it.get('tamanho'):
+            pedacos.append(_slug_arquivo(it['tamanho']))
+        if pedacos:
+            partes.append('_'.join(pedacos))
+    nome = '-'.join(partes) if partes else 'Catalogo'
+    return f'{nome[:120]}.pdf'
+
 def _combo_subtitulo(itens, marcas_nomes):
     partes = []
     for it in itens:
@@ -787,7 +820,7 @@ def gerar_pdf_combo():
     subt = _combo_subtitulo(itens, dados['marcas'])
     html = render_template('catalogo.html', titulo='AZOZ STORE', subtitulo=subt, marcas=dados['marcas'], produtos=dados['produtos'], looks=dados['looks'], whatsapp=WHATSAPP_NUMBER)
     pdf_bytes = HTML(string=html, base_url=request.host_url).write_pdf()
-    return send_file(BytesIO(pdf_bytes), as_attachment=True, download_name='catalogo_combo.pdf', mimetype='application/pdf')
+    return send_file(BytesIO(pdf_bytes), as_attachment=True, download_name=_nome_arquivo_combo(itens), mimetype='application/pdf')
 
 @app.route('/preview-combo')
 def preview_pdf_combo():

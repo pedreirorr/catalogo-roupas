@@ -575,7 +575,7 @@ function abrirEditar(id){
 function formHtml(p, isNew, catNome){
   const fotoMain = p.imagem ? `<img src="${esc(p.imagem)}">` : `<span class="plus">+</span><span>Foto principal</span>`;
   const fotoDet = p.imagem_detalhe ? `<img src="${esc(p.imagem_detalhe)}">` : `<span class="plus">+</span><span>Detalhe</span>`;
-  const fnMain = isNew ? `escolherFotoNova('imagem',250/340)` : `escolherFoto('imagem',250/340)`;
+  const fnMain = isNew ? `escolherFotoNova('imagem',3/4)` : `escolherFoto('imagem',3/4)`;
   const fnDet  = isNew ? `escolherFotoNova('imagem_detalhe',1)` : `escolherFoto('imagem_detalhe',1)`;
   const fnRem  = isNew ? 'removerFotoNova' : 'removerFoto';
   const remMain = p.imagem ? `<button type="button" class="btn-remove-foto" onclick="${fnRem}('imagem')">tirar foto</button>` : '';
